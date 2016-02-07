@@ -1,3 +1,5 @@
+#pragma once
+/*
 # Copyright (c) 2005-2012 Stephen John Machin, Lingfo Pty Ltd
 # This module is part of the xlrd package, which is released under a
 # BSD-style licence.
@@ -19,104 +21,116 @@ if sys.version.startswith("IronPython"):
 
 empty_cell = sheet.empty_cell # for exposure to the world ...
 
-DEBUG = 0
+*/
+#include <string>
+#include <vector>
+#include <map>
+#include <tuple>
 
-USE_FANCY_CD = 1
+namespace xlrd {
+namespace book {
 
-TOGGLE_GC = 0
-import gc
-# gc.set_debug(gc.DEBUG_STATS)
 
-try:
-    import mmap
-    MMAP_AVAILABLE = 1
-except ImportError:
-    MMAP_AVAILABLE = 0
-USE_MMAP = MMAP_AVAILABLE
+int DEBUG = 0;
 
-MY_EOF = 0xF00BAAA # not a 16-bit number
+int USE_FANCY_CD = 1;
 
-SUPBOOK_UNK, SUPBOOK_INTERNAL, SUPBOOK_EXTERNAL, SUPBOOK_ADDIN, SUPBOOK_DDEOLE = range(5)
+int TOGGLE_GC = 0;
 
-SUPPORTED_VERSIONS = (80, 70, 50, 45, 40, 30, 21, 20)
+// import gc
+// gc.set_debug(gc.DEBUG_STATS)
 
+// try:
+//     import mmap
+//     MMAP_AVAILABLE = 1
+// except ImportError:
+//     MMAP_AVAILABLE = 0
+// USE_MMAP = MMAP_AVAILABLE
+
+int MY_EOF = 0xF00BAAA;  // not a 16-bit number
+
+enum{
+    SUPBOOK_UNK, SUPBOOK_INTERNAL, SUPBOOK_EXTERNAL, SUPBOOK_ADDIN, SUPBOOK_DDEOLE
+};
+
+std::vector<int>
+SUPPORTED_VERSIONS = {80, 70, 50, 45, 40, 30, 21, 20};
+
+std::map<std::string, char>
 _code_from_builtin_name = {
-    "Consolidate_Area": "\x00",
-    "Auto_Open":        "\x01",
-    "Auto_Close":       "\x02",
-    "Extract":          "\x03",
-    "Database":         "\x04",
-    "Criteria":         "\x05",
-    "Print_Area":       "\x06",
-    "Print_Titles":     "\x07",
-    "Recorder":         "\x08",
-    "Data_Form":        "\x09",
-    "Auto_Activate":    "\x0A",
-    "Auto_Deactivate":  "\x0B",
-    "Sheet_Title":      "\x0C",
-    "_FilterDatabase":  "\x0D",
-    }
-builtin_name_from_code = {}
-code_from_builtin_name = {}
-for _bin, _bic in _code_from_builtin_name.items():
-    _bin = UNICODE_LITERAL(_bin)
-    _bic = UNICODE_LITERAL(_bic)
-    code_from_builtin_name[_bin] = _bic
-    builtin_name_from_code[_bic] = _bin
-del _bin, _bic, _code_from_builtin_name
+    {"Consolidate_Area", '\x00'},
+    {"Auto_Open",        '\x01'},
+    {"Auto_Close",       '\x02'},
+    {"Extract",          '\x03'},
+    {"Database",         '\x04'},
+    {"Criteria",         '\x05'},
+    {"Print_Area",       '\x06'},
+    {"Print_Titles",     '\x07'},
+    {"Recorder",         '\x08'},
+    {"Data_Form",        '\x09'},
+    {"Auto_Activate",    '\x0A'},
+    {"Auto_Deactivate",  '\x0B'},
+    {"Sheet_Title",      '\x0C'},
+    {"_FilterDatabase",  '\x0D'},
+};
 
-def open_workbook_xls(filename=None,
-    logfile=sys.stdout, verbosity=0, use_mmap=USE_MMAP,
-    file_contents=None,
-    encoding_override=None,
-    formatting_info=False, on_demand=False, ragged_rows=False,
-    ):
-    t0 = time.clock()
-    if TOGGLE_GC:
-        orig_gc_enabled = gc.isenabled()
-        if orig_gc_enabled:
-            gc.disable()
-    bk = Book()
-    try:
-        bk.biff2_8_load(
-            filename=filename, file_contents=file_contents,
-            logfile=logfile, verbosity=verbosity, use_mmap=use_mmap,
-            encoding_override=encoding_override,
-            formatting_info=formatting_info,
-            on_demand=on_demand,
-            ragged_rows=ragged_rows,
-            )
-        t1 = time.clock()
-        bk.load_time_stage_1 = t1 - t0
-        biff_version = bk.getbof(XL_WORKBOOK_GLOBALS)
-        if not biff_version:
-            raise XLRDError("Can't determine file's BIFF version")
-        if biff_version not in SUPPORTED_VERSIONS:
+//builtin_name_from_code = {}
+//code_from_builtin_name = {}
+
+// for _bin, _bic in _code_from_builtin_name.items():
+//     _bin = UNICODE_LITERAL(_bin)
+//     _bic = UNICODE_LITERAL(_bic)
+//     code_from_builtin_name[_bin] = _bic
+//     builtin_name_from_code[_bic] = _bin
+// del _bin, _bic, _code_from_builtin_name
+
+class Book;
+
+inline
+Book open_workbook_xls(std::string filename)
+{
+    time_t t0 = time.clock();
+    // if TOGGLE_GC:
+    //     orig_gc_enabled = gc.isenabled()
+    //     if orig_gc_enabled:
+    //         gc.disable()
+    Book bk = Book();
+    try {
+        bk.biff2_8_load(filename);
+        time_t t1 = time.clock();
+        bk.load_time_stage_1 = t1 - t0;
+        int biff_version = bk.getbof(XL_WORKBOOK_GLOBALS);
+        if (biff_version == 0) {
+            raise XLRDError("Can't determine file's BIFF version");
+        }
+        if (biff_version not in SUPPORTED_VERSIONS) {
             raise XLRDError(
                 "BIFF version %s is not supported"
                 % biff_text_from_num[biff_version]
-                )
-        bk.biff_version = biff_version
-        if biff_version <= 40:
-            # no workbook globals, only 1 worksheet
-            if on_demand:
-                fprintf(bk.logfile,
-                    "*** WARNING: on_demand is not supported for this Excel version.\n"
-                    "*** Setting on_demand to False.\n")
-                bk.on_demand = on_demand = False
+                );
+        }
+        bk.biff_version = biff_version;
+        if (biff_version <= 40) {
+            // no workbook globals, only 1 worksheet
+            fprintf(bk.logfile,
+                "*** WARNING: on_demand is not supported for this Excel version.\n"
+                "*** Setting on_demand to False.\n");
+            bk.on_demand = false;
             bk.fake_globals_get_sheet()
-        elif biff_version == 45:
-            # worksheet(s) embedded in global stream
+        }
+        else if (biff_version == 45) {
+            // worksheet(s) embedded in global stream
             bk.parse_globals()
             if on_demand:
                 fprintf(bk.logfile, "*** WARNING: on_demand is not supported for this Excel version.\n"
                                     "*** Setting on_demand to False.\n")
                 bk.on_demand = on_demand = False
-        else:
+        }
+        else {
             bk.parse_globals()
             bk._sheet_list = [None for sh in bk._sheet_names]
-            if not on_demand:
-                bk.get_sheets()
+            bk.get_sheets()
+        }
         bk.nsheets = len(bk._sheet_list)
         if biff_version == 45 and bk.nsheets > 1:
             fprintf(bk.logfile,
@@ -132,144 +146,132 @@ def open_workbook_xls(filename=None,
     except:
         bk.release_resources()
         raise
-    # normal exit
-    if not on_demand:
-        bk.release_resources()
-    return bk
+    // normal exit
+    bk.release_resources();
+    return bk;
+}
 
-##
-# For debugging: dump the file's BIFF records in char & hex.
-# @param filename The path to the file to be dumped.
-# @param outfile An open file, to which the dump is written.
-# @param unnumbered If true, omit offsets (for meaningful diffs).
 
-def dump(filename, outfile=sys.stdout, unnumbered=False):
-    bk = Book()
-    bk.biff2_8_load(filename=filename, logfile=outfile, )
-    biff_dump(bk.mem, bk.base, bk.stream_len, 0, outfile, unnumbered)
+////
+// Information relating to a named reference, formula, macro, etc.
+// <br />  -- New in version 0.6.0
+// <br />  -- <i>Name information is <b>not</b> extracted from files older than
+// Excel 5.0 (Book.biff_version < 50)</i>
 
-##
-# For debugging and analysis: summarise the file's BIFF records.
-# I.e. produce a sorted file of (record_name, count).
-# @param filename The path to the file to be summarised.
-# @param outfile An open file, to which the summary is written.
+class Name {
+public:
 
-def count_records(filename, outfile=sys.stdout):
-    bk = Book()
-    bk.biff2_8_load(filename=filename, logfile=outfile, )
-    biff_count_records(bk.mem, bk.base, bk.stream_len, outfile)
+    Book* book;
 
-##
-# Information relating to a named reference, formula, macro, etc.
-# <br />  -- New in version 0.6.0
-# <br />  -- <i>Name information is <b>not</b> extracted from files older than
-# Excel 5.0 (Book.biff_version < 50)</i>
+    ////
+    // 0 = Visible; 1 = Hidden
+    int hidden = 0;
 
-class Name(BaseObject):
+    ////
+    // 0 = Command macro; 1 = Function macro. Relevant only if macro == 1
+    int func = 0;
 
-    _repr_these = ['stack']
-    book = None # parent
+    ////
+    // 0 = Sheet macro; 1 = VisualBasic macro. Relevant only if macro == 1
+    int vbasic = 0;
 
-    ##
-    # 0 = Visible; 1 = Hidden
-    hidden = 0
+    ////
+    // 0 = Standard name; 1 = Macro name
+    int macro = 0;
 
-    ##
-    # 0 = Command macro; 1 = Function macro. Relevant only if macro == 1
-    func = 0
+    ////
+    // 0 = Simple formula; 1 = Complex formula (array formula or user defined)<br />
+    // <i>No examples have been sighted.</i>
+    int complex = 0;
 
-    ##
-    # 0 = Sheet macro; 1 = VisualBasic macro. Relevant only if macro == 1
-    vbasic = 0
+    ////
+    // 0 = User-defined name; 1 = Built-in name
+    // (common examples: Print_Area, Print_Titles; see OOo docs for full list)
+    int builtin = 0;
 
-    ##
-    # 0 = Standard name; 1 = Macro name
-    macro = 0
+    ////
+    // Function group. Relevant only if macro == 1; see OOo docs for values.
+    int funcgroup = 0;
 
-    ##
-    # 0 = Simple formula; 1 = Complex formula (array formula or user defined)<br />
-    # <i>No examples have been sighted.</i>
-    complex = 0
+    ////
+    // 0 = Formula definition; 1 = Binary data<br />  <i>No examples have been sighted.</i>
+    int binary = 0;
 
-    ##
-    # 0 = User-defined name; 1 = Built-in name
-    # (common examples: Print_Area, Print_Titles; see OOo docs for full list)
-    builtin = 0
+    ////
+    // The index of this object in book.name_obj_list
+    int name_index = 0;
 
-    ##
-    # Function group. Relevant only if macro == 1; see OOo docs for values.
-    funcgroup = 0
+    ////
+    // A Unicode string. If builtin, decoded as per OOo docs.
+    std::string name;  // = "";
 
-    ##
-    # 0 = Formula definition; 1 = Binary data<br />  <i>No examples have been sighted.</i>
-    binary = 0
+    ////
+    // An 8-bit string.
+    std::vector<uint8_t> raw_formula;
 
-    ##
-    # The index of this object in book.name_obj_list
-    name_index = 0
+    ////
+    // -1: The name is global (visible in all calculation sheets).<br />
+    // -2: The name belongs to a macro sheet or VBA sheet.<br />
+    // -3: The name is invalid.<br />
+    // 0 <= scope < book.nsheets: The name is local to the sheet whose index is scope.
+    int scope = -1;
 
-    ##
-    # A Unicode string. If builtin, decoded as per OOo docs.
-    name = UNICODE_LITERAL("")
+    ////
+    // The result of evaluating the formula, if any.
+    // If no formula, or evaluation of the formula encountered problems,
+    // the result is None. Otherwise the result is a single instance of the
+    // Operand class.
+    //
+    Operand* result;  // = None
 
-    ##
-    # An 8-bit string.
-    raw_formula = b''
-
-    ##
-    # -1: The name is global (visible in all calculation sheets).<br />
-    # -2: The name belongs to a macro sheet or VBA sheet.<br />
-    # -3: The name is invalid.<br />
-    # 0 <= scope < book.nsheets: The name is local to the sheet whose index is scope.
-    scope = -1
-
-    ##
-    # The result of evaluating the formula, if any.
-    # If no formula, or evaluation of the formula encountered problems,
-    # the result is None. Otherwise the result is a single instance of the
-    # Operand class.
-    #
-    result = None
-
-    ##
-    # This is a convenience method for the frequent use case where the name
-    # refers to a single cell.
-    # @return An instance of the Cell class.
-    # @throws XLRDError The name is not a constant absolute reference
-    # to a single cell.
-    def cell(self):
-        res = self.result
-        if res:
-            # result should be an instance of the Operand class
-            kind = res.kind
-            value = res.value
-            if kind == oREF and len(value) == 1:
+    ////
+    // This is a convenience method for the frequent use case where the name
+    // refers to a single cell.
+    // @return An instance of the Cell class.
+    // @throws XLRDError The name is not a constant absolute reference
+    // to a single cell.
+    inline
+    Cell cell()
+    {
+        Operand* res = self.result
+        if (res != nullptr) {
+            // result should be an instance of the Operand class
+            kind = res->kind;
+            value = res->value;
+            if (kind == oREF and len(value) == 1) {
                 ref3d = value[0]
                 if (0 <= ref3d.shtxlo == ref3d.shtxhi - 1
-                and      ref3d.rowxlo == ref3d.rowxhi - 1
-                and      ref3d.colxlo == ref3d.colxhi - 1):
-                    sh = self.book.sheet_by_index(ref3d.shtxlo)
-                    return sh.cell(ref3d.rowxlo, ref3d.colxlo)
-        self.dump(self.book.logfile,
-            header="=== Dump of Name object ===",
-            footer="======= End of dump =======",
-            )
-        raise XLRDError("Not a constant absolute reference to a single cell")
+                &&       ref3d.rowxlo == ref3d.rowxhi - 1
+                &&       ref3d.colxlo == ref3d.colxhi - 1) {
+                    sh = self.book.sheet_by_index(ref3d.shtxlo);
+                    return sh.cell(ref3d.rowxlo, ref3d.colxlo);
+                }
+            }
+        }
+        // self.dump(self.book.logfile,
+        //     header="=== Dump of Name object ===",
+        //     footer="======= End of dump =======",
+        //     )
+        raise XLRDError("Not a constant absolute reference to a single cell");
+    };
 
-    ##
-    # This is a convenience method for the use case where the name
-    # refers to one rectangular area in one worksheet.
-    # @param clipped If true (the default), the returned rectangle is clipped
-    # to fit in (0, sheet.nrows, 0, sheet.ncols) -- it is guaranteed that
-    # 0 <= rowxlo <= rowxhi <= sheet.nrows and that the number of usable rows
-    # in the area (which may be zero) is rowxhi - rowxlo; likewise for columns.
-    # @return a tuple (sheet_object, rowxlo, rowxhi, colxlo, colxhi).
-    # @throws XLRDError The name is not a constant absolute reference
-    # to a single area in a single sheet.
-    def area2d(self, clipped=True):
-        res = self.result
-        if res:
-            # result should be an instance of the Operand class
+    ////
+    // This is a convenience method for the use case where the name
+    // refers to one rectangular area in one worksheet.
+    // @param clipped If true (the default), the returned rectangle is clipped
+    // to fit in (0, sheet.nrows, 0, sheet.ncols) -- it is guaranteed that
+    // 0 <= rowxlo <= rowxhi <= sheet.nrows and that the number of usable rows
+    // in the area (which may be zero) is rowxhi - rowxlo; likewise for columns.
+    // @return a tuple (sheet_object, rowxlo, rowxhi, colxlo, colxhi).
+    // @throws XLRDError The name is not a constant absolute reference
+    // to a single area in a single sheet.
+    inline
+    std::tuple<Sheet*, int, int, int, int>
+    area2d()
+    {
+        auto res = self.result;
+        if (res) {
+            // result should be an instance of the Operand class
             kind = res.kind
             value = res.value
             if kind == oREF and len(value) == 1: # only 1 reference
@@ -285,36 +287,35 @@ class Name(BaseObject):
                     assert 0 <= rowxlo <= rowxhi <= sh.nrows
                     assert 0 <= colxlo <= colxhi <= sh.ncols
                     return sh, rowxlo, rowxhi, colxlo, colxhi
-        self.dump(self.book.logfile,
-            header="=== Dump of Name object ===",
-            footer="======= End of dump =======",
-            )
-        raise XLRDError("Not a constant absolute reference to a single area in a single sheet")
+        }
+        raise XLRDError("Not a constant absolute reference to a single area in a single sheet");
+    };
+};
 
-##
-# Contents of a "workbook".
-# <p>WARNING: You don't call this class yourself. You use the Book object that
-# was returned when you called xlrd.open_workbook("myfile.xls").</p>
+////
+// Contents of a "workbook".
+// <p>WARNING: You don't call this class yourself. You use the Book object that
+// was returned when you called xlrd.open_workbook("myfile.xls").</p>
 
-class Book(BaseObject):
+class Book {
+public:
+    ////
+    // The number of worksheets present in the workbook file.
+    // This information is available even when no sheets have yet been loaded.
+    int nsheets;  // = 0
 
-    ##
-    # The number of worksheets present in the workbook file.
-    # This information is available even when no sheets have yet been loaded.
-    nsheets = 0
+    ////
+    // Which date system was in force when this file was last saved.<br />
+    //    0 => 1900 system (the Excel for Windows default).<br />
+    //    1 => 1904 system (the Excel for Macintosh default).<br />
+    int datemode;  // = 0 # In case it's not specified in the file.
 
-    ##
-    # Which date system was in force when this file was last saved.<br />
-    #    0 => 1900 system (the Excel for Windows default).<br />
-    #    1 => 1904 system (the Excel for Macintosh default).<br />
-    datemode = 0 # In case it's not specified in the file.
-
-    ##
-    # Version of BIFF (Binary Interchange File Format) used to create the file.
-    # Latest is 8.0 (represented here as 80), introduced with Excel 97.
-    # Earliest supported by this module: 2.0 (represented as 20).
-    biff_version = 0
-
+    ////
+    // Version of BIFF (Binary Interchange File Format) used to create the file.
+    // Latest is 8.0 (represented here as 80), introduced with Excel 97.
+    // Earliest supported by this module: 2.0 (represented as 20).
+    int biff_version = 0;
+/*
     ##
     # List containing a Name object for each NAME record in the workbook.
     # <br />  -- New in version 0.6.0
@@ -1290,10 +1291,14 @@ class Book(BaseObject):
             'BOF not workbook/worksheet: op=0x%04x vers=0x%04x strm=0x%04x build=%d year=%d -> BIFF%d' \
             % (opcode, version2, streamtype, build, year, version)
             )
+*/
+};
 
-# === helper functions
+// === helper functions
 
-def expand_cell_address(inrow, incol):
+inline
+std::tuple<int, int, int, int>
+expand_cell_address(inrow, incol) {
     # Ref : OOo docs, "4.3.4 Cell Addresses in BIFF8"
     outrow = inrow
     if incol & 0x8000:
@@ -1310,7 +1315,9 @@ def expand_cell_address(inrow, incol):
     else:
         relcol = 0
     return outrow, outcol, relrow, relcol
+};
 
+/*
 def colname(colx, _A2Z="ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
     assert colx >= 0
     name = UNICODE_LITERAL('')
@@ -1418,3 +1425,7 @@ def unpack_SST_table(datatab, nstrings):
                 assert _unused_i == nstrings - 1
         strappend(accstrg)
     return strings, richtext_runs
+*/
+
+}
+}

@@ -1,3 +1,6 @@
+#pragma once
+
+/*
 # -*- coding: cp1252 -*-
 
 # No part of the content of this file was derived from the works of David Giffin.
@@ -211,3 +214,4 @@ def xldate_from_datetime_tuple(datetime_tuple, datemode):
         +
         xldate_from_time_tuple(datetime_tuple[3:])
         )
+*/

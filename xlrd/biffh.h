@@ -1,123 +1,92 @@
-# -*- coding: cp1252 -*-
+#pragma once
+// -*- coding: cp1252 -*-
 
-##
-# Support module for the xlrd package.
-#
-# <p>Portions copyright © 2005-2010 Stephen John Machin, Lingfo Pty Ltd</p>
-# <p>This module is part of the xlrd package, which is released under a BSD-style licence.</p>
-##
+//#
+// Support module for the xlrd package.
+//
+// <p>Portions copyright © 2005-2010 Stephen John Machin, Lingfo Pty Ltd</p>
+// <p>This module is part of the xlrd package, which is released under a BSD-style licence.</p>
+//#
 
-# 2010-03-01 SJM Reading SCL record
-# 2010-03-01 SJM Added more record IDs for biff_dump & biff_count
-# 2008-02-10 SJM BIFF2 BLANK record
-# 2008-02-08 SJM Preparation for Excel 2.0 support
-# 2008-02-02 SJM Added suffixes (_B2, _B2_ONLY, etc) on record names for biff_dump & biff_count
-# 2007-12-04 SJM Added support for Excel 2.x (BIFF2) files.
-# 2007-09-08 SJM Avoid crash when zero-length Unicode string missing options byte.
-# 2007-04-22 SJM Remove experimental "trimming" facility.
+// 2010-03-01 SJM Reading SCL record
+// 2010-03-01 SJM Added more record IDs for biff_dump & biff_count
+// 2008-02-10 SJM BIFF2 BLANK record
+// 2008-02-08 SJM Preparation for Excel 2.0 support
+// 2008-02-02 SJM Added suffixes (_B2, _B2_ONLY, etc) on record names for biff_dump & biff_count
+// 2007-12-04 SJM Added support for Excel 2.x (BIFF2) files.
+// 2007-09-08 SJM Avoid crash when zero-length Unicode string missing options byte.
+// 2007-04-22 SJM Remove experimental "trimming" facility.
 
-from __future__ import print_function
+#include <string>
+#include <map>
+#include <exception>
 
-DEBUG = 0
+namespace xlrd {
+namespace biffh {
 
-from struct import unpack
-import sys
-from .timemachine import *
+static int DEBUG = 0;
 
-class XLRDError(Exception):
-    pass
 
-##
-# Parent of almost all other classes in the package. Defines a common "dump" method
-# for debugging.
+class XLRDError: public std::exception
+{
+};
 
-class BaseObject(object):
+enum {
+    FUN, FDT, FNU, FGE, FTX
+    // unknown, date, number, general, text
+};
+static const int DATEFORMAT = FDT;
+static const int NUMBERFORMAT = FNU;
 
-    _repr_these = []
-
-    ##
-    # @param f open file object, to which the dump is written
-    # @param header text to write before the dump
-    # @param footer text to write after the dump
-    # @param indent number of leading spaces (for recursive calls)
-
-    def dump(self, f=None, header=None, footer=None, indent=0):
-        if f is None:
-            f = sys.stderr
-        if hasattr(self, "__slots__"):
-            alist = []
-            for attr in self.__slots__:
-                alist.append((attr, getattr(self, attr)))
-        else:
-            alist = self.__dict__.items()
-        alist = sorted(alist)
-        pad = " " * indent
-        if header is not None: print(header, file=f)
-        list_type = type([])
-        dict_type = type({})
-        for attr, value in alist:
-            if getattr(value, 'dump', None) and attr != 'book':
-                value.dump(f,
-                    header="%s%s (%s object):" % (pad, attr, value.__class__.__name__),
-                    indent=indent+4)
-            elif attr not in self._repr_these and (
-                isinstance(value, list_type) or isinstance(value, dict_type)
-                ):
-                print("%s%s: %s, len = %d" % (pad, attr, type(value), len(value)), file=f)
-            else:
-                fprintf(f, "%s%s: %r\n", pad, attr, value)
-        if footer is not None: print(footer, file=f)
-
-FUN, FDT, FNU, FGE, FTX = range(5) # unknown, date, number, general, text
-DATEFORMAT = FDT
-NUMBERFORMAT = FNU
-
-(
+enum {
     XL_CELL_EMPTY,
     XL_CELL_TEXT,
     XL_CELL_NUMBER,
     XL_CELL_DATE,
     XL_CELL_BOOLEAN,
     XL_CELL_ERROR,
-    XL_CELL_BLANK, # for use in debugging, gathering stats, etc
-) = range(7)
+    XL_CELL_BLANK  // for use in debugging, gathering stats, etc
+};
 
+std::map<int, std::string>
 biff_text_from_num = {
-    0:  "(not BIFF)",
-    20: "2.0",
-    21: "2.1",
-    30: "3",
-    40: "4S",
-    45: "4W",
-    50: "5",
-    70: "7",
-    80: "8",
-    85: "8X",
-    }
+    {0,  "(not BIFF)"},
+    {20, "2.0"},
+    {21, "2.1"},
+    {30, "3"},
+    {40, "4S"},
+    {45, "4W"},
+    {50, "5"},
+    {70, "7"},
+    {80, "8"},
+    {85, "8X"}
+};
 
-##
-# <p>This dictionary can be used to produce a text version of the internal codes
-# that Excel uses for error cells. Here are its contents:
-# <pre>
-# 0x00: '#NULL!',  # Intersection of two cell ranges is empty
-# 0x07: '#DIV/0!', # Division by zero
-# 0x0F: '#VALUE!', # Wrong type of operand
-# 0x17: '#REF!',   # Illegal or deleted cell reference
-# 0x1D: '#NAME?',  # Wrong function or range name
-# 0x24: '#NUM!',   # Value range overflow
-# 0x2A: '#N/A',    # Argument or function not available
-# </pre></p>
+//#
+// <p>This dictionary can be used to produce a text version of the internal codes
+// that Excel uses for error cells. Here are its contents:
+// <pre>
+// 0x00: '#NULL!',  # Intersection of two cell ranges is empty
+// 0x07: '#DIV/0!', # Division by zero
+// 0x0F: '#VALUE!', # Wrong type of operand
+// 0x17: '#REF!',   # Illegal or deleted cell reference
+// 0x1D: '#NAME?',  # Wrong function or range name
+// 0x24: '#NUM!',   # Value range overflow
+// 0x2A: '#N/A',    # Argument or function not available
+// </pre></p>
 
+std::map<int, std::string>
 error_text_from_code = {
-    0x00: '#NULL!',  # Intersection of two cell ranges is empty
-    0x07: '#DIV/0!', # Division by zero
-    0x0F: '#VALUE!', # Wrong type of operand
-    0x17: '#REF!',   # Illegal or deleted cell reference
-    0x1D: '#NAME?',  # Wrong function or range name
-    0x24: '#NUM!',   # Value range overflow
-    0x2A: '#N/A',    # Argument or function not available
-}
+    {0x00, "#NULL!"},   // Intersection of two cell ranges is empty
+    {0x07, "#DIV/0!"},  // Division by zero
+    {0x0F, "#VALUE!"},  // Wrong type of operand
+    {0x17, "#REF!"},    // Illegal or deleted cell reference
+    {0x1D, "#NAME?"},   // Wrong function or range name
+    {0x24, "#NUM!"},    // Value range overflow
+    {0x2A, "#N/A"}      // Argument or function not available
+};
 
+/*
 BIFF_FIRST_UNICODE = 80
 
 XL_WORKBOOK_GLOBALS = WBKBLOBAL = 0x5
@@ -128,7 +97,7 @@ XL_BOUNDSHEET_WORKSHEET = 0x00
 XL_BOUNDSHEET_CHART     = 0x02
 XL_BOUNDSHEET_VB_MODULE = 0x06
 
-# XL_RK2 = 0x7e
+// XL_RK2 = 0x7e
 XL_ARRAY  = 0x0221
 XL_ARRAY2 = 0x0021
 XL_BLANK = 0x0201
@@ -649,15 +618,20 @@ encoding_from_codepage = {
     32768: 'mac_roman',
     32769: 'cp1252',
     }
-# some more guessing, for Indic scripts
-# codepage 57000 range:
-# 2 Devanagari [0]
-# 3 Bengali [1]
-# 4 Tamil [5]
-# 5 Telegu [6]
-# 6 Assamese [1] c.f. Bengali
-# 7 Oriya [4]
-# 8 Kannada [7]
-# 9 Malayalam [8]
-# 10 Gujarati [3]
-# 11 Gurmukhi [2]
+// some more guessing, for Indic scripts
+// codepage 57000 range:
+// 2 Devanagari [0]
+// 3 Bengali [1]
+// 4 Tamil [5]
+// 5 Telegu [6]
+// 6 Assamese [1] c.f. Bengali
+// 7 Oriya [4]
+// 8 Kannada [7]
+// 9 Malayalam [8]
+// 10 Gujarati [3]
+// 11 Gurmukhi [2]
+
+*/
+
+}
+}
