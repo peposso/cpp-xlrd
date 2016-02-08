@@ -8,3 +8,4 @@ build/
 /*.xml
 /htmlcov
 MANIFEST
+.DS_Store

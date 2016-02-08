@@ -22,6 +22,10 @@ if sys.version.startswith("IronPython"):
 empty_cell = sheet.empty_cell # for exposure to the world ...
 
 */
+#include "biffh.h"
+#include "sheet.h"
+#include "formula.h"  // __all__
+
 #include <string>
 #include <vector>
 #include <map>
@@ -30,6 +34,9 @@ empty_cell = sheet.empty_cell # for exposure to the world ...
 namespace xlrd {
 namespace book {
 
+using xlrd::biffh::XL_WORKBOOK_GLOBALS;
+using Operand = xlrd::formula::Operand;
+using Sheet = xlrd::sheet::Sheet;
 
 int DEBUG = 0;
 
@@ -84,72 +91,6 @@ _code_from_builtin_name = {
 //     builtin_name_from_code[_bic] = _bin
 // del _bin, _bic, _code_from_builtin_name
 
-class Book;
-
-inline
-Book open_workbook_xls(std::string filename)
-{
-    time_t t0 = time.clock();
-    // if TOGGLE_GC:
-    //     orig_gc_enabled = gc.isenabled()
-    //     if orig_gc_enabled:
-    //         gc.disable()
-    Book bk = Book();
-    try {
-        bk.biff2_8_load(filename);
-        time_t t1 = time.clock();
-        bk.load_time_stage_1 = t1 - t0;
-        int biff_version = bk.getbof(XL_WORKBOOK_GLOBALS);
-        if (biff_version == 0) {
-            raise XLRDError("Can't determine file's BIFF version");
-        }
-        if (biff_version not in SUPPORTED_VERSIONS) {
-            raise XLRDError(
-                "BIFF version %s is not supported"
-                % biff_text_from_num[biff_version]
-                );
-        }
-        bk.biff_version = biff_version;
-        if (biff_version <= 40) {
-            // no workbook globals, only 1 worksheet
-            fprintf(bk.logfile,
-                "*** WARNING: on_demand is not supported for this Excel version.\n"
-                "*** Setting on_demand to False.\n");
-            bk.on_demand = false;
-            bk.fake_globals_get_sheet()
-        }
-        else if (biff_version == 45) {
-            // worksheet(s) embedded in global stream
-            bk.parse_globals()
-            if on_demand:
-                fprintf(bk.logfile, "*** WARNING: on_demand is not supported for this Excel version.\n"
-                                    "*** Setting on_demand to False.\n")
-                bk.on_demand = on_demand = False
-        }
-        else {
-            bk.parse_globals()
-            bk._sheet_list = [None for sh in bk._sheet_names]
-            bk.get_sheets()
-        }
-        bk.nsheets = len(bk._sheet_list)
-        if biff_version == 45 and bk.nsheets > 1:
-            fprintf(bk.logfile,
-                "*** WARNING: Excel 4.0 workbook (.XLW) file contains %d worksheets.\n"
-                "*** Book-level data will be that of the last worksheet.\n",
-                bk.nsheets
-                )
-        if TOGGLE_GC:
-            if orig_gc_enabled:
-                gc.enable()
-        t2 = time.clock()
-        bk.load_time_stage_2 = t2 - t1
-    except:
-        bk.release_resources()
-        raise
-    // normal exit
-    bk.release_resources();
-    return bk;
-}
 
 
 ////
@@ -157,6 +98,8 @@ Book open_workbook_xls(std::string filename)
 // <br />  -- New in version 0.6.0
 // <br />  -- <i>Name information is <b>not</b> extracted from files older than
 // Excel 5.0 (Book.biff_version < 50)</i>
+
+class Book;
 
 class Name {
 public:
@@ -233,16 +176,17 @@ public:
     inline
     Cell cell()
     {
-        Operand* res = self.result
+        Operand* res = this->result;
         if (res != nullptr) {
             // result should be an instance of the Operand class
-            kind = res->kind;
+            int kind = res->kind;
             value = res->value;
             if (kind == oREF and len(value) == 1) {
                 ref3d = value[0]
                 if (0 <= ref3d.shtxlo == ref3d.shtxhi - 1
                 &&       ref3d.rowxlo == ref3d.rowxhi - 1
-                &&       ref3d.colxlo == ref3d.colxhi - 1) {
+                &&       ref3d.colxlo == ref3d.colxhi - 1)
+                {
                     sh = self.book.sheet_by_index(ref3d.shtxlo);
                     return sh.cell(ref3d.rowxlo, ref3d.colxlo);
                 }
@@ -269,26 +213,28 @@ public:
     std::tuple<Sheet*, int, int, int, int>
     area2d()
     {
-        auto res = self.result;
+        auto res = this->result;
         if (res) {
             // result should be an instance of the Operand class
-            kind = res.kind
+            int kind = res->kind;
             value = res.value
-            if kind == oREF and len(value) == 1: # only 1 reference
+            if (kind == oREF and len(value) == 1) {  // only 1 reference
                 ref3d = value[0]
-                if 0 <= ref3d.shtxlo == ref3d.shtxhi - 1: # only 1 usable sheet
+                if (0 <= ref3d.shtxlo == ref3d.shtxhi - 1) {  // only 1 usable sheet
                     sh = self.book.sheet_by_index(ref3d.shtxlo)
                     if not clipped:
                         return sh, ref3d.rowxlo, ref3d.rowxhi, ref3d.colxlo, ref3d.colxhi
-                    rowxlo = min(ref3d.rowxlo, sh.nrows)
-                    rowxhi = max(rowxlo, min(ref3d.rowxhi, sh.nrows))
-                    colxlo = min(ref3d.colxlo, sh.ncols)
-                    colxhi = max(colxlo, min(ref3d.colxhi, sh.ncols))
-                    assert 0 <= rowxlo <= rowxhi <= sh.nrows
-                    assert 0 <= colxlo <= colxhi <= sh.ncols
-                    return sh, rowxlo, rowxhi, colxlo, colxhi
+                    rowxlo = min(ref3d.rowxlo, sh.nrows);
+                    rowxhi = max(rowxlo, min(ref3d.rowxhi, sh.nrows));
+                    colxlo = min(ref3d.colxlo, sh.ncols);
+                    colxhi = max(colxlo, min(ref3d.colxhi, sh.ncols));
+                    assert 0 <= rowxlo <= rowxhi <= sh.nrows;
+                    assert 0 <= colxlo <= colxhi <= sh.ncols;
+                    return sh, rowxlo, rowxhi, colxlo, colxhi;
+                }
+            }
         }
-        raise XLRDError("Not a constant absolute reference to a single area in a single sheet");
+        throw XLRDError("Not a constant absolute reference to a single area in a single sheet");
     };
 };
 
@@ -547,69 +493,58 @@ public:
         self.style_name_map = {}
         self.mem = b''
         self.filestr = b''
+*/
+    inline
+    void biff2_8_load(std::vector<uint8_t> file_contents)
+    {
+        // DEBUG = 0
+        this->logfile = 0;
+        this->verbosity = 0;
+        this->use_mmap = 0;
+        this->encoding_override = 0;
+        this->formatting_info = 0;
+        this->on_demand = 0;
+        this->ragged_rows = 0;
 
-    def biff2_8_load(self, filename=None, file_contents=None,
-        logfile=sys.stdout, verbosity=0, use_mmap=USE_MMAP,
-        encoding_override=None,
-        formatting_info=False,
-        on_demand=False,
-        ragged_rows=False,
-        ):
-        # DEBUG = 0
-        self.logfile = logfile
-        self.verbosity = verbosity
-        self.use_mmap = use_mmap and MMAP_AVAILABLE
-        self.encoding_override = encoding_override
-        self.formatting_info = formatting_info
-        self.on_demand = on_demand
-        self.ragged_rows = ragged_rows
+        this->filestr = file_contents;
+        this->stream_len = file_contents.size();
 
-        if not file_contents:
-            with open(filename, "rb") as f:
-                f.seek(0, 2) # EOF
-                size = f.tell()
-                f.seek(0, 0) # BOF
-                if size == 0:
-                    raise XLRDError("File size is 0 bytes")
-                if self.use_mmap:
-                    self.filestr = mmap.mmap(f.fileno(), size, access=mmap.ACCESS_READ)
-                    self.stream_len = size
-                else:
-                    self.filestr = f.read()
-                    self.stream_len = len(self.filestr)
-        else:
-            self.filestr = file_contents
-            self.stream_len = len(file_contents)
-
-        self.base = 0
-        if self.filestr[:8] != compdoc.SIGNATURE:
-            # got this one at the antique store
-            self.mem = self.filestr
-        else:
-            cd = compdoc.CompDoc(self.filestr, logfile=self.logfile)
-            if USE_FANCY_CD:
-                for qname in ['Workbook', 'Book']:
-                    self.mem, self.base, self.stream_len = \
+        this->base = 0;
+        if (!utils::equals(utils::slice(self->filestr, 0, 8) compdoc::SIGNATURE)) {
+            // got this one at the antique store
+            this->mem = this->filestr;
+        }
+        else {
+            auto cd = compdoc::CompDoc(this->filestr)
+            if (USE_FANCY_CD) {
+                bool breaked = false;
+                for (auto qname: ["Workbook", "Book"]) {
+                    this->mem, this->base, this->stream_len = \
                                 cd.locate_named_stream(UNICODE_LITERAL(qname))
-                    if self.mem: break
-                else:
-                    raise XLRDError("Can't find workbook in OLE2 compound document")
+                    if (this->mem) { breaked = true; break }
+                }
+                else {
+                    throw XLRDError("Can't find workbook in OLE2 compound document")
+                }
+            }
             else:
                 for qname in ['Workbook', 'Book']:
-                    self.mem = cd.get_named_stream(UNICODE_LITERAL(qname))
-                    if self.mem: break
+                    this->mem = cd.get_named_stream(UNICODE_LITERAL(qname))
+                    if this->mem: break
                 else:
                     raise XLRDError("Can't find workbook in OLE2 compound document")
-                self.stream_len = len(self.mem)
+                this->stream_len = len(this->mem)
             del cd
-            if self.mem is not self.filestr:
-                if hasattr(self.filestr, "close"):
-                    self.filestr.close()
-                self.filestr = b''
-        self._position = self.base
+            if this->mem is not this->filestr:
+                if hasattr(this->filestr, "close"):
+                    this->filestr.close()
+                this->filestr = b''
+        }
+        this->_position = this->base;
         if DEBUG:
             print("mem: %s, base: %d, len: %d" % (type(self.mem), self.base, self.stream_len), file=self.logfile)
-
+    }
+/*
     def initialise_format_info(self):
         # needs to be done once per sheet for BIFF 4W :-(
         self.format_map = {}
@@ -1298,23 +1233,25 @@ public:
 
 inline
 std::tuple<int, int, int, int>
-expand_cell_address(inrow, incol) {
-    # Ref : OOo docs, "4.3.4 Cell Addresses in BIFF8"
-    outrow = inrow
-    if incol & 0x8000:
-        if outrow >= 32768:
-            outrow -= 65536
-        relrow = 1
-    else:
-        relrow = 0
-    outcol = incol & 0xFF
-    if incol & 0x4000:
-        if outcol >= 128:
-            outcol -= 256
-        relcol = 1
-    else:
-        relcol = 0
-    return outrow, outcol, relrow, relcol
+expand_cell_address(int inrow, int incol) {
+    // Ref : OOo docs, "4.3.4 Cell Addresses in BIFF8"
+    int outrow = inrow;
+    int relrow = 0;
+    if (incol & 0x8000) {
+        if (outrow >= 32768) {
+            outrow -= 65536;
+        }
+        relrow = 1;
+    }
+    int outcol = incol & 0xFF;
+    int relcol = 0;
+    if (incol & 0x4000) {
+        if (outcol >= 128) {
+            outcol -= 256;
+        }
+        relcol = 1;
+    }
+    return std::make_tuple(outrow, outcol, relrow, relcol);
 };
 
 /*
@@ -1426,6 +1363,69 @@ def unpack_SST_table(datatab, nstrings):
         strappend(accstrg)
     return strings, richtext_runs
 */
+
+inline
+Book open_workbook_xls(std::string filename)
+{
+    // if TOGGLE_GC:
+    //     orig_gc_enabled = gc.isenabled()
+    //     if orig_gc_enabled:
+    //         gc.disable()
+    Book bk = Book();
+    try {
+        bk.biff2_8_load(filename);
+        int biff_version = bk.getbof(XL_WORKBOOK_GLOBALS);
+        if (biff_version == 0) {
+            throw XLRDError("Can't determine file's BIFF version");
+        }
+        if (utils::indexof(SUPPORTED_VERSIONS, biff_version) > -1) {
+            throw XLRDError(
+                "BIFF version %s is not supported"
+                % biff_text_from_num[biff_version]
+            );
+        }
+        bk.biff_version = biff_version;
+        if (biff_version <= 40) {
+            // no workbook globals, only 1 worksheet
+            fprintf(bk.logfile,
+                "*** WARNING: on_demand is not supported for this Excel version.\n"
+                "*** Setting on_demand to False.\n");
+            bk.on_demand = false;
+            bk.fake_globals_get_sheet()
+        }
+        else if (biff_version == 45) {
+            // worksheet(s) embedded in global stream
+            bk.parse_globals()
+            if on_demand:
+                fprintf(bk.logfile, "*** WARNING: on_demand is not supported for this Excel version.\n"
+                                    "*** Setting on_demand to False.\n")
+                bk.on_demand = on_demand = False
+        }
+        else {
+            bk.parse_globals()
+            bk._sheet_list = [None for sh in bk._sheet_names]
+            bk.get_sheets()
+        }
+        bk.nsheets = len(bk._sheet_list)
+        if biff_version == 45 and bk.nsheets > 1:
+            fprintf(bk.logfile,
+                "*** WARNING: Excel 4.0 workbook (.XLW) file contains %d worksheets.\n"
+                "*** Book-level data will be that of the last worksheet.\n",
+                bk.nsheets
+                )
+        if TOGGLE_GC:
+            if orig_gc_enabled:
+                gc.enable()
+        t2 = time.clock()
+        bk.load_time_stage_2 = t2 - t1
+    except:
+        bk.release_resources()
+        raise
+    // normal exit
+    bk.release_resources();
+    return bk;
+}
+
 
 }
 }

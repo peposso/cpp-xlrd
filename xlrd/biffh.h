@@ -27,7 +27,7 @@ namespace biffh {
 static int DEBUG = 0;
 
 
-class XLRDError: public std::exception
+class XLRDError: public std::runtime_error
 {
 };
 
@@ -86,17 +86,19 @@ error_text_from_code = {
     {0x2A, "#N/A"}      // Argument or function not available
 };
 
+static int BIFF_FIRST_UNICODE = 80;
+
+static int WBKBLOBAL = 0x5;
+static int XL_WORKBOOK_GLOBALS = WBKBLOBAL;
+static int XL_WORKBOOK_GLOBALS_4W = 0x100;
+static int WRKSHEET = 0x10;
+static int XL_WORKSHEET = WRKSHEET;
+
+static int XL_BOUNDSHEET_WORKSHEET = 0x00;
+static int XL_BOUNDSHEET_CHART     = 0x02;
+static int XL_BOUNDSHEET_VB_MODULE = 0x06;
+
 /*
-BIFF_FIRST_UNICODE = 80
-
-XL_WORKBOOK_GLOBALS = WBKBLOBAL = 0x5
-XL_WORKBOOK_GLOBALS_4W = 0x100
-XL_WORKSHEET = WRKSHEET = 0x10
-
-XL_BOUNDSHEET_WORKSHEET = 0x00
-XL_BOUNDSHEET_CHART     = 0x02
-XL_BOUNDSHEET_VB_MODULE = 0x06
-
 // XL_RK2 = 0x7e
 XL_ARRAY  = 0x0221
 XL_ARRAY2 = 0x0021

@@ -327,10 +327,15 @@
 #include "xlrd/sheet.h"  // empty_cell
 #include "xlrd/xldate.h"  // XLDateError, xldate_as_tuple
 #include "xlrd/xlsx.h"  // X12Book
+#include "xlrd/utils.h"  // X12Book
 
 namespace xlrd {
 
+static const char* __VERSION__ = "0.9.4";
+
 using Book = xlrd::book::Book;
+
+using utils = xlrd::utils;
 
 //#
 //
@@ -377,64 +382,44 @@ using Book = xlrd::book::Book;
 // @return An instance of the Book class.
 
 inline
-Book open_workbook(const std::string& filename)
+Book open_workbook(const std::vector<uint8_t>& file_contents)
 {
     int peeksz = 4;
-    /*
-    if file_contents:
-        peek = file_contents[:peeksz]
-    else:
-        f = open(filename, "rb")
-        peek = f.read(peeksz)
-        f.close()
-    if peek == b"PK\x03\x04": # a ZIP file
-        if file_contents:
-            zf = zipfile.ZipFile(timemachine.BYTES_IO(file_contents))
-        else:
-            zf = zipfile.ZipFile(filename)
+    auto peek = utils::slice(file_contents, 0, peeksz);
+    if (utils::equals(peek, "PK\x03\x04")) {
+        // a ZIP file
+        auto zf = zipfile::ZipFile(file_contents);
 
-        # Workaround for some third party files that use forward slashes and
-        # lower case names. We map the expected name in lowercase to the
-        # actual filename in the zip container.
-        component_names = dict([(X12Book.convert_filename(name), name)
-                                for name in zf.namelist()])
+        // Workaround for some third party files that use forward slashes and
+        // lower case names. We map the expected name in lowercase to the
+        // actual filename in the zip container.
+        std::map<std::string, std::string> component_names;
+        for (auto name: zf.namelist()) {
+            component_names[X12Book::convert_filename(name)] = name;
+        }
 
-        if verbosity:
-            logfile.write('ZIP component_names:\n')
-            pprint.pprint(component_names, logfile)
-        if 'xl/workbook.xml' in component_names:
-            from . import xlsx
-            bk = xlsx.open_workbook_2007_xml(
-                zf,
-                component_names,
-                logfile=logfile,
-                verbosity=verbosity,
-                use_mmap=use_mmap,
-                formatting_info=formatting_info,
-                on_demand=on_demand,
-                ragged_rows=ragged_rows,
-                )
-            return bk
-        if 'xl/workbook.bin' in component_names:
-            raise XLRDError('Excel 2007 xlsb file; not supported')
-        if 'content.xml' in component_names:
-            raise XLRDError('Openoffice.org ODS file; not supported')
-        raise XLRDError('ZIP file contents not a known type of workbook')
+        if (utils::haskey(component_names, "xl/workbook.xml") {
+            auto bk = xlsx::open_workbook_2007_xml(zf, component_names);
+            return bk;
+        }
+        if (utils::haskey(component_names, "xl/workbook.bin")) {
+            throw XLRDError('Excel 2007 xlsb file; not supported');
+        }
+        if (utils::haskey(component_names, "content.xml") {
+            throw XLRDError("Openoffice.org ODS file; not supported");
+        }
+        throw XLRDError("ZIP file contents not a known type of workbook")
+    }
 
-    from . import book
-    bk = book.open_workbook_xls(
-        filename=filename,
-        logfile=logfile,
-        verbosity=verbosity,
-        use_mmap=use_mmap,
-        file_contents=file_contents,
-        encoding_override=encoding_override,
-        formatting_info=formatting_info,
-        on_demand=on_demand,
-        ragged_rows=ragged_rows,
-        )
+    auto bk = book::open_workbook_xls(file_contents);
     return bk
-    */
+}
+
+inline
+Book open_workbook(const std::string& filename)
+{
+    u8vec file_contents = utils::read_contents(filename);
+    return open_workbook(file_contents);
 }
 
 } // namespace xlrd
