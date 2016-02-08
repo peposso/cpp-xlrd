@@ -12,13 +12,20 @@
 
 // No part of the content of this file was derived from the works of David Giffin.
 
+#include "biffh.h"  //  unpack_unicode_update_pos, unpack_string_update_pos, \
+                    //  XLRDError, hex_char_dump, error_text_from_code, BaseObject
+
 namespace xlrd {
 namespace formula {
+
+auto& unpack_unicode_update_pos = biffh::unpack_unicode_update_pos;
+auto& unpack_string_update_pos = biffh::unpack_string_update_pos;
+using XLRDError = biffh::XLRDError;
+auto& error_text_from_code = biffh::error_text_from_code;
 
 class Operand {};
 
 /*
-from .timemachine import *
 from .biffh import unpack_unicode_update_pos, unpack_string_update_pos, \
     XLRDError, hex_char_dump, error_text_from_code, BaseObject
 
