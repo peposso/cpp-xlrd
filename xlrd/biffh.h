@@ -252,17 +252,32 @@ def unpack_string(data, pos, encoding, lenlen=1):
     nchars = unpack('<' + 'BH'[lenlen-1], data[pos:pos+lenlen])[0]
     pos += lenlen
     return unicode(data[pos:pos+nchars], encoding)
+*/
 
-def unpack_string_update_pos(data, pos, encoding, lenlen=1, known_len=None):
-    if known_len is not None:
+inline
+std::tuple<std::string, int>
+unpack_string_update_pos(std::vector<uint8_t> data, int pos,
+                         std::string encoding, int lenlen=1,
+                         int known_len=-1)
+{
+    int nchars = 0;
+    if (known_len > -1) {
         // On a NAME record, the length byte is detached from the front of the string.
-        nchars = known_len
-    else:
-        nchars = unpack('<' + 'BH'[lenlen-1], data[pos:pos+lenlen])[0]
-        pos += lenlen
-    newpos = pos + nchars
-    return (unicode(data[pos:newpos], encoding), newpos)
+        nchars = known_len;
+    }
+    else {
+        if (lenlen == 1) {
+            nchars = utils::as_uint8(data, pos);
+        } else {
+            nchars = utils::as_uint16le(data, pos);
+        }
+        pos += lenlen;
+    }
+    int newpos = pos + nchars;
+    return std::make_tuple(utils::unicode(utils::slice(data, pos, newpos), encoding), newpos);
+}
 
+/*
 def unpack_unicode(data, pos, lenlen=2):
     "Return unicode_strg"
     nchars = unpack('<' + 'BH'[lenlen-1], data[pos:pos+lenlen])[0]

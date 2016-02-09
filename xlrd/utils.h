@@ -41,18 +41,22 @@ uint8_t as_uint8(std::vector<uint8_t> vec, int pos=0) {
 }
 
 uint16_t as_uint16le(std::vector<uint8_t> vec, int pos=0) {
+    // = unpack("<H", vec[pos:])
     return vec[pos] | (vec[pos+1] << 8);
 }
 
 uint16_t as_uint16be(std::vector<uint8_t> vec, int pos=0) {
+    // = unpack(">H", vec[pos:])
     return (vec[pos] << 8) | vec[pos+1];
 }
 
 int16_t as_int16le(std::vector<uint8_t> vec, int pos=0) {
+    // = unpack("<h", vec[pos:])
     return vec[pos] | (vec[pos+1] << 8);
 }
 
 int16_t as_int16be(std::vector<uint8_t> vec, int pos=0) {
+    // = unpack(">h", vec[pos:])
     return (vec[pos] << 8) | vec[pos+1];
 }
 
@@ -80,13 +84,13 @@ std::string utf16to8(std::vector<uint8_t> u16buf) {
             // ascii
             u8buf.push_back(uc);
         } else if (uc < 0x7FF) {
-            // ascii
+            // 2bytes
             uint8_t b1 = 0xC2 | (0b00011111 & (uc>>6));
             uint8_t b2 = 0x80 | (0b00111111 & uc);
             u8buf.push_back(b1);
             u8buf.push_back(b2);
         } else if (uc < 0xFFFF) {
-            // ascii
+            // 3bytes
             uint8_t b1 = 0xE0 | (0b00001111 & (uc>>12));
             uint8_t b2 = 0x80 | (0b00111111 & (uc>>6));
             uint8_t b3 = 0x80 | (0b00111111 & uc);
@@ -96,6 +100,11 @@ std::string utf16to8(std::vector<uint8_t> u16buf) {
         }
     }
     return u8buf;
+}
+
+std::string unicode(std::vector<uint8_t> src, std::string encoding)
+{
+    return std::string((char*)&src[0], src.size());
 }
 
 }

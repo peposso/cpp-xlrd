@@ -5,7 +5,7 @@
 ////
 // Module for formatting information.
 //
-// <p>Copyright © 2005-2012 Stephen John Machin, Lingfo Pty Ltd</p>
+// <p>Copyright Â© 2005-2012 Stephen John Machin, Lingfo Pty Ltd</p>
 // <p>This module is part of the xlrd package, which is released under
 // a BSD-style licence.</p>
 ////
@@ -15,24 +15,24 @@
 #include <vector>
 #include <map>
 
-#include "biffh.h"
+#include "./biffh.h"
 // unpack_unicode, unpack_string, \
 //    upkbits, upkbitsL, fprintf, \
 //    FUN, FDT, FNU, FGE, FTX, XL_CELL_NUMBER, XL_CELL_DATE, XL_CELL_TEXT, \
 //    XL_FORMAT, XL_FORMAT2, \
 //    XLRDError
-#include "utils.h"
+#include "./utils.h"
 
 namespace xlrd {
 namespace formatting {
 
-static int FUN = biffh::FUN;
-static int FDT = biffh::FDT;
-static int FNU = biffh::FNU;
-static int FGE = biffh::FGE;
-static int FTX = biffh::FTX;
-static int XL_CELL_NUMBER = biffh::XL_CELL_NUMBER;
-static int XL_CELL_DATE = biffh::XL_CELL_DATE;
+const auto& FUN = biffh::FUN;
+const auto& FDT = biffh::FDT;
+const auto& FNU = biffh::FNU;
+const auto& FGE = biffh::FGE;
+const auto& FTX = biffh::FTX;
+const auto& XL_CELL_NUMBER = biffh::XL_CELL_NUMBER;
+const auto& XL_CELL_DATE = biffh::XL_CELL_DATE;
 
 /*
 from __future__ import print_function
@@ -81,27 +81,30 @@ excel_default_palette_b5 = {
 static std::vector<std::tuple<int, int, int>>
 excel_default_palette_b2 = utils::slice(excel_default_palette_b5, 0, 16);
 
-/*
 
 // Following table borrowed from Gnumeric 1.4 source.
 // Checked against OOo docs and MS docs.
-excel_default_palette_b8 = ( // (red, green, blue)
-    (  0,  0,  0), (255,255,255), (255,  0,  0), (  0,255,  0), // 0
-    (  0,  0,255), (255,255,  0), (255,  0,255), (  0,255,255), // 4
-    (128,  0,  0), (  0,128,  0), (  0,  0,128), (128,128,  0), // 8
-    (128,  0,128), (  0,128,128), (192,192,192), (128,128,128), // 12
-    (153,153,255), (153, 51,102), (255,255,204), (204,255,255), // 16
-    (102,  0,102), (255,128,128), (  0,102,204), (204,204,255), // 20
-    (  0,  0,128), (255,  0,255), (255,255,  0), (  0,255,255), // 24
-    (128,  0,128), (128,  0,  0), (  0,128,128), (  0,  0,255), // 28
-    (  0,204,255), (204,255,255), (204,255,204), (255,255,153), // 32
-    (153,204,255), (255,153,204), (204,153,255), (255,204,153), // 36
-    ( 51,102,255), ( 51,204,204), (153,204,  0), (255,204,  0), // 40
-    (255,153,  0), (255,102,  0), (102,102,153), (150,150,150), // 44
-    (  0, 51,102), ( 51,153,102), (  0, 51,  0), ( 51, 51,  0), // 48
-    (153, 51,  0), (153, 51,102), ( 51, 51,153), ( 51, 51, 51), // 52
-    )
+#define T std::make_tuple
+std::vector<std::tuple<uint8_t, uint8_t, uint8_t>>
+excel_default_palette_b8 = { // (red, green, blue)
+    T(  0,  0,  0), T(255,255,255), T(255,  0,  0), T(  0,255,  0), // 0
+    T(  0,  0,255), T(255,255,  0), T(255,  0,255), T(  0,255,255), // 4
+    T(128,  0,  0), T(  0,128,  0), T(  0,  0,128), T(128,128,  0), // 8
+    T(128,  0,128), T(  0,128,128), T(192,192,192), T(128,128,128), // 12
+    T(153,153,255), T(153, 51,102), T(255,255,204), T(204,255,255), // 16
+    T(102,  0,102), T(255,128,128), T(  0,102,204), T(204,204,255), // 20
+    T(  0,  0,128), T(255,  0,255), T(255,255,  0), T(  0,255,255), // 24
+    T(128,  0,128), T(128,  0,  0), T(  0,128,128), T(  0,  0,255), // 28
+    T(  0,204,255), T(204,255,255), T(204,255,204), T(255,255,153), // 32
+    T(153,204,255), T(255,153,204), T(204,153,255), T(255,204,153), // 36
+    T( 51,102,255), T( 51,204,204), T(153,204,  0), T(255,204,  0), // 40
+    T(255,153,  0), T(255,102,  0), T(102,102,153), T(150,150,150), // 44
+    T(  0, 51,102), T( 51,153,102), T(  0, 51,  0), T( 51, 51,  0), // 48
+    T(153, 51,  0), T(153, 51,102), T( 51, 51,153), T( 51, 51, 51), // 52
+};
+#undef T
 
+/*
 default_palette = {
     80: excel_default_palette_b8,
     70: excel_default_palette_b5,

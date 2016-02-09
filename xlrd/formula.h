@@ -12,11 +12,16 @@
 
 // No part of the content of this file was derived from the works of David Giffin.
 
-#include "biffh.h"  //  unpack_unicode_update_pos, unpack_string_update_pos, \
+#include <set>
+
+#include "./site/struct.h"
+#include "./biffh.h"  //  unpack_unicode_update_pos, unpack_string_update_pos, \
                     //  XLRDError, hex_char_dump, error_text_from_code, BaseObject
 
 namespace xlrd {
 namespace formula {
+
+namespace structs = xlrd::site::structs;
 
 auto& unpack_unicode_update_pos = biffh::unpack_unicode_update_pos;
 auto& unpack_string_update_pos = biffh::unpack_string_update_pos;
@@ -43,422 +48,476 @@ __all__ = [
     'FMLA_TYPE_DATA_VAL',
     'FMLA_TYPE_NAME',
     ]
+*/
 
-FMLA_TYPE_CELL = 1
-FMLA_TYPE_SHARED = 2
-FMLA_TYPE_ARRAY = 4
-FMLA_TYPE_COND_FMT = 8
-FMLA_TYPE_DATA_VAL = 16
-FMLA_TYPE_NAME = 32
-ALL_FMLA_TYPES = 63
+static int FMLA_TYPE_CELL = 1;
+static int FMLA_TYPE_SHARED = 2;
+static int FMLA_TYPE_ARRAY = 4;
+static int FMLA_TYPE_COND_FMT = 8;
+static int FMLA_TYPE_DATA_VAL = 16;
+static int FMLA_TYPE_NAME = 32;
+static int ALL_FMLA_TYPES = 63;
 
-
+static std::map<int, std::string>
 FMLA_TYPEDESCR_MAP = {
-    1 : 'CELL',
-    2 : 'SHARED',
-    4 : 'ARRAY',
-    8 : 'COND-FMT',
-    16: 'DATA-VAL',
-    32: 'NAME',
-    }
+    {1 , "CELL"},
+    {2 , "SHARED"},
+    {4 , "ARRAY"},
+    {8 , "COND-FMT"},
+    {16, "DATA-VAL"},
+    {32, "NAME"},
+};
 
-_TOKEN_NOT_ALLOWED = {
-    0x01:   ALL_FMLA_TYPES - FMLA_TYPE_CELL, // tExp
-    0x02:   ALL_FMLA_TYPES - FMLA_TYPE_CELL, // tTbl
-    0x0F:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tIsect
-    0x10:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tUnion/List
-    0x11:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tRange
-    0x20:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tArray
-    0x23:   FMLA_TYPE_SHARED, // tName
-    0x39:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tNameX
-    0x3A:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tRef3d
-    0x3B:   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL, // tArea3d
-    0x2C:   FMLA_TYPE_CELL + FMLA_TYPE_ARRAY, // tRefN
-    0x2D:   FMLA_TYPE_CELL + FMLA_TYPE_ARRAY, // tAreaN
+static std::map<int, int>
+_TOKEN_NOT_ALLOWED_DICT = {
+    {0x01,   ALL_FMLA_TYPES - FMLA_TYPE_CELL}, // tExp
+    {0x02,   ALL_FMLA_TYPES - FMLA_TYPE_CELL}, // tTbl
+    {0x0F,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tIsect
+    {0x10,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tUnion/List
+    {0x11,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tRange
+    {0x20,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tArray
+    {0x23,   FMLA_TYPE_SHARED}, // tName
+    {0x39,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tNameX
+    {0x3A,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tRef3d
+    {0x3B,   FMLA_TYPE_SHARED + FMLA_TYPE_COND_FMT + FMLA_TYPE_DATA_VAL}, // tArea3d
+    {0x2C,   FMLA_TYPE_CELL + FMLA_TYPE_ARRAY}, // tRefN
+    {0x2D,   FMLA_TYPE_CELL + FMLA_TYPE_ARRAY}, // tAreaN
     // plus weird stuff like tMem*
-    }.get
+};
 
-oBOOL = 3
-oERR =  4
-oMSNG = 5 // tMissArg
-oNUM =  2
-oREF = -1
-oREL = -2
-oSTRG = 1
-oUNK =  0
-
-okind_dict = {
-    -2: "oREL",
-    -1: "oREF",
-    0 : "oUNK",
-    1 : "oSTRG",
-    2 : "oNUM",
-    3 : "oBOOL",
-    4 : "oERR",
-    5 : "oMSNG",
+inline
+int _TOKEN_NOT_ALLOWED(int key, int alt) {
+    auto it = _TOKEN_NOT_ALLOWED_DICT.find(key);
+    if (it == _TOKEN_NOT_ALLOWED_DICT.end()) {
+        return it->second;
     }
+    return alt;
+}
 
-listsep = ',' //////// probably should depend on locale
+
+static int oBOOL = 3;
+static int oERR =  4;
+static int oMSNG = 5; // tMissArg
+static int oNUM =  2;
+static int oREF = -1;
+static int oREL = -2;
+static int oSTRG = 1;
+static int oUNK =  0;
+
+static std::map<int, std::string>
+okind_dict = {
+    {-2, "oREL"},
+    {-1, "oREF"},
+    {0 , "oUNK"},
+    {1 , "oSTRG"},
+    {2 , "oNUM"},
+    {3 , "oBOOL"},
+    {4 , "oERR"},
+    {5 , "oMSNG"},
+};
+
+static char
+listsep = ','; //////// probably should depend on locale
 
 
 // sztabN[opcode] -> the number of bytes to consume.
 // -1 means variable
 // -2 means this opcode not implemented in this version.
 // Which N to use? Depends on biff_version; see szdict.
-sztab0 = [-2, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 8, 4, 2, 2, 3, 9, 8, 2, 3, 8, 4, 7, 5, 5, 5, 2, 4, 7, 4, 7, 2, 2, -2, -2, -2, -2, -2, -2, -2, -2, 3, -2, -2, -2, -2, -2, -2, -2]
-sztab1 = [-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 11, 5, 2, 2, 3, 9, 9, 2, 3, 11, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, 3, -2, -2, -2, -2, -2, -2, -2]
-sztab2 = [-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 11, 5, 2, 2, 3, 9, 9, 3, 4, 11, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2]
-sztab3 = [-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 15, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 25, 18, 21, 18, 21, -2, -2]
-sztab4 = [-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 5, 5, 9, 7, 7, 7, 3, 5, 9, 5, 9, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 7, 7, 11, 7, 11, -2, -2]
+static std::vector<int>
+sztab0 = {-2, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 8, 4, 2, 2, 3, 9, 8, 2, 3, 8, 4, 7, 5, 5, 5, 2, 4, 7, 4, 7, 2, 2, -2, -2, -2, -2, -2, -2, -2, -2, 3, -2, -2, -2, -2, -2, -2, -2};
+static std::vector<int>
+sztab1 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 11, 5, 2, 2, 3, 9, 9, 2, 3, 11, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, 3, -2, -2, -2, -2, -2, -2, -2};
+static std::vector<int>
+sztab2 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 11, 5, 2, 2, 3, 9, 9, 3, 4, 11, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2};
+static std::vector<int>
+sztab3 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 15, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 25, 18, 21, 18, 21, -2, -2};
+static std::vector<int>
+sztab4 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 5, 5, 9, 7, 7, 7, 3, 5, 9, 5, 9, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 7, 7, 11, 7, 11, -2, -2};
 
+static std::map<int, std::vector<int>&>
 szdict = {
-    20 : sztab0,
-    21 : sztab0,
-    30 : sztab1,
-    40 : sztab2,
-    45 : sztab2,
-    50 : sztab3,
-    70 : sztab3,
-    80 : sztab4,
-    }
+    {20, sztab0},
+    {21, sztab0},
+    {30, sztab1},
+    {40, sztab2},
+    {45, sztab2},
+    {50, sztab3},
+    {70, sztab3},
+    {80, sztab4},
+};
 
 // For debugging purposes ... the name for each opcode
 // (without the prefix "t" used on OOo docs)
-onames = ['Unk00', 'Exp', 'Tbl', 'Add', 'Sub', 'Mul', 'Div', 'Power', 'Concat', 'LT', 'LE', 'EQ', 'GE', 'GT', 'NE', 'Isect', 'List', 'Range', 'Uplus', 'Uminus', 'Percent', 'Paren', 'MissArg', 'Str', 'Extended', 'Attr', 'Sheet', 'EndSheet', 'Err', 'Bool', 'Int', 'Num', 'Array', 'Func', 'FuncVar', 'Name', 'Ref', 'Area', 'MemArea', 'MemErr', 'MemNoMem', 'MemFunc', 'RefErr', 'AreaErr', 'RefN', 'AreaN', 'MemAreaN', 'MemNoMemN', '', '', '', '', '', '', '', '', 'FuncCE', 'NameX', 'Ref3d', 'Area3d', 'RefErr3d', 'AreaErr3d', '', '']
+static std::vector<std::string>
+onames = {"Unk00", "Exp", "Tbl", "Add", "Sub", "Mul", "Div", "Power", "Concat", "LT", "LE", "EQ", "GE", "GT", "NE", "Isect", "List", "Range", "Uplus", "Uminus", "Percent", "Paren", "MissArg", "Str", "Extended", "Attr", "Sheet", "EndSheet", "Err", "Bool", "Int", "Num", "Array", "Func", "FuncVar", "Name", "Ref", "Area", "MemArea", "MemErr", "MemNoMem", "MemFunc", "RefErr", "AreaErr", "RefN", "AreaN", "MemAreaN", "MemNoMemN", "", "", "", "", "", "", "", "", "FuncCE", "NameX", "Ref3d", "Area3d", "RefErr3d", "AreaErr3d", "", ""};
 
+static std::map<int, std::tuple<std::string, int, int, int, int, std::string, std::string>>
+#define T std::make_tuple
 func_defs = {
     // index: (name, min//args, max//args, flags, //known_args, return_type, kargs)
-    0  : ('COUNT',            0, 30, 0x04,  1, 'V', 'R'),
-    1  : ('IF',               2,  3, 0x04,  3, 'V', 'VRR'),
-    2  : ('ISNA',             1,  1, 0x02,  1, 'V', 'V'),
-    3  : ('ISERROR',          1,  1, 0x02,  1, 'V', 'V'),
-    4  : ('SUM',              0, 30, 0x04,  1, 'V', 'R'),
-    5  : ('AVERAGE',          1, 30, 0x04,  1, 'V', 'R'),
-    6  : ('MIN',              1, 30, 0x04,  1, 'V', 'R'),
-    7  : ('MAX',              1, 30, 0x04,  1, 'V', 'R'),
-    8  : ('ROW',              0,  1, 0x04,  1, 'V', 'R'),
-    9  : ('COLUMN',           0,  1, 0x04,  1, 'V', 'R'),
-    10 : ('NA',               0,  0, 0x02,  0, 'V', ''),
-    11 : ('NPV',              2, 30, 0x04,  2, 'V', 'VR'),
-    12 : ('STDEV',            1, 30, 0x04,  1, 'V', 'R'),
-    13 : ('DOLLAR',           1,  2, 0x04,  1, 'V', 'V'),
-    14 : ('FIXED',            2,  3, 0x04,  3, 'V', 'VVV'),
-    15 : ('SIN',              1,  1, 0x02,  1, 'V', 'V'),
-    16 : ('COS',              1,  1, 0x02,  1, 'V', 'V'),
-    17 : ('TAN',              1,  1, 0x02,  1, 'V', 'V'),
-    18 : ('ATAN',             1,  1, 0x02,  1, 'V', 'V'),
-    19 : ('PI',               0,  0, 0x02,  0, 'V', ''),
-    20 : ('SQRT',             1,  1, 0x02,  1, 'V', 'V'),
-    21 : ('EXP',              1,  1, 0x02,  1, 'V', 'V'),
-    22 : ('LN',               1,  1, 0x02,  1, 'V', 'V'),
-    23 : ('LOG10',            1,  1, 0x02,  1, 'V', 'V'),
-    24 : ('ABS',              1,  1, 0x02,  1, 'V', 'V'),
-    25 : ('INT',              1,  1, 0x02,  1, 'V', 'V'),
-    26 : ('SIGN',             1,  1, 0x02,  1, 'V', 'V'),
-    27 : ('ROUND',            2,  2, 0x02,  2, 'V', 'VV'),
-    28 : ('LOOKUP',           2,  3, 0x04,  2, 'V', 'VR'),
-    29 : ('INDEX',            2,  4, 0x0c,  4, 'R', 'RVVV'),
-    30 : ('REPT',             2,  2, 0x02,  2, 'V', 'VV'),
-    31 : ('MID',              3,  3, 0x02,  3, 'V', 'VVV'),
-    32 : ('LEN',              1,  1, 0x02,  1, 'V', 'V'),
-    33 : ('VALUE',            1,  1, 0x02,  1, 'V', 'V'),
-    34 : ('TRUE',             0,  0, 0x02,  0, 'V', ''),
-    35 : ('FALSE',            0,  0, 0x02,  0, 'V', ''),
-    36 : ('AND',              1, 30, 0x04,  1, 'V', 'R'),
-    37 : ('OR',               1, 30, 0x04,  1, 'V', 'R'),
-    38 : ('NOT',              1,  1, 0x02,  1, 'V', 'V'),
-    39 : ('MOD',              2,  2, 0x02,  2, 'V', 'VV'),
-    40 : ('DCOUNT',           3,  3, 0x02,  3, 'V', 'RRR'),
-    41 : ('DSUM',             3,  3, 0x02,  3, 'V', 'RRR'),
-    42 : ('DAVERAGE',         3,  3, 0x02,  3, 'V', 'RRR'),
-    43 : ('DMIN',             3,  3, 0x02,  3, 'V', 'RRR'),
-    44 : ('DMAX',             3,  3, 0x02,  3, 'V', 'RRR'),
-    45 : ('DSTDEV',           3,  3, 0x02,  3, 'V', 'RRR'),
-    46 : ('VAR',              1, 30, 0x04,  1, 'V', 'R'),
-    47 : ('DVAR',             3,  3, 0x02,  3, 'V', 'RRR'),
-    48 : ('TEXT',             2,  2, 0x02,  2, 'V', 'VV'),
-    49 : ('LINEST',           1,  4, 0x04,  4, 'A', 'RRVV'),
-    50 : ('TREND',            1,  4, 0x04,  4, 'A', 'RRRV'),
-    51 : ('LOGEST',           1,  4, 0x04,  4, 'A', 'RRVV'),
-    52 : ('GROWTH',           1,  4, 0x04,  4, 'A', 'RRRV'),
-    56 : ('PV',               3,  5, 0x04,  5, 'V', 'VVVVV'),
-    57 : ('FV',               3,  5, 0x04,  5, 'V', 'VVVVV'),
-    58 : ('NPER',             3,  5, 0x04,  5, 'V', 'VVVVV'),
-    59 : ('PMT',              3,  5, 0x04,  5, 'V', 'VVVVV'),
-    60 : ('RATE',             3,  6, 0x04,  6, 'V', 'VVVVVV'),
-    61 : ('MIRR',             3,  3, 0x02,  3, 'V', 'RVV'),
-    62 : ('IRR',              1,  2, 0x04,  2, 'V', 'RV'),
-    63 : ('RAND',             0,  0, 0x0a,  0, 'V', ''),
-    64 : ('MATCH',            2,  3, 0x04,  3, 'V', 'VRR'),
-    65 : ('DATE',             3,  3, 0x02,  3, 'V', 'VVV'),
-    66 : ('TIME',             3,  3, 0x02,  3, 'V', 'VVV'),
-    67 : ('DAY',              1,  1, 0x02,  1, 'V', 'V'),
-    68 : ('MONTH',            1,  1, 0x02,  1, 'V', 'V'),
-    69 : ('YEAR',             1,  1, 0x02,  1, 'V', 'V'),
-    70 : ('WEEKDAY',          1,  2, 0x04,  2, 'V', 'VV'),
-    71 : ('HOUR',             1,  1, 0x02,  1, 'V', 'V'),
-    72 : ('MINUTE',           1,  1, 0x02,  1, 'V', 'V'),
-    73 : ('SECOND',           1,  1, 0x02,  1, 'V', 'V'),
-    74 : ('NOW',              0,  0, 0x0a,  0, 'V', ''),
-    75 : ('AREAS',            1,  1, 0x02,  1, 'V', 'R'),
-    76 : ('ROWS',             1,  1, 0x02,  1, 'V', 'R'),
-    77 : ('COLUMNS',          1,  1, 0x02,  1, 'V', 'R'),
-    78 : ('OFFSET',           3,  5, 0x04,  5, 'R', 'RVVVV'),
-    82 : ('SEARCH',           2,  3, 0x04,  3, 'V', 'VVV'),
-    83 : ('TRANSPOSE',        1,  1, 0x02,  1, 'A', 'A'),
-    86 : ('TYPE',             1,  1, 0x02,  1, 'V', 'V'),
-    92 : ('SERIESSUM',        4,  4, 0x02,  4, 'V', 'VVVA'),
-    97 : ('ATAN2',            2,  2, 0x02,  2, 'V', 'VV'),
-    98 : ('ASIN',             1,  1, 0x02,  1, 'V', 'V'),
-    99 : ('ACOS',             1,  1, 0x02,  1, 'V', 'V'),
-    100: ('CHOOSE',           2, 30, 0x04,  2, 'V', 'VR'),
-    101: ('HLOOKUP',          3,  4, 0x04,  4, 'V', 'VRRV'),
-    102: ('VLOOKUP',          3,  4, 0x04,  4, 'V', 'VRRV'),
-    105: ('ISREF',            1,  1, 0x02,  1, 'V', 'R'),
-    109: ('LOG',              1,  2, 0x04,  2, 'V', 'VV'),
-    111: ('CHAR',             1,  1, 0x02,  1, 'V', 'V'),
-    112: ('LOWER',            1,  1, 0x02,  1, 'V', 'V'),
-    113: ('UPPER',            1,  1, 0x02,  1, 'V', 'V'),
-    114: ('PROPER',           1,  1, 0x02,  1, 'V', 'V'),
-    115: ('LEFT',             1,  2, 0x04,  2, 'V', 'VV'),
-    116: ('RIGHT',            1,  2, 0x04,  2, 'V', 'VV'),
-    117: ('EXACT',            2,  2, 0x02,  2, 'V', 'VV'),
-    118: ('TRIM',             1,  1, 0x02,  1, 'V', 'V'),
-    119: ('REPLACE',          4,  4, 0x02,  4, 'V', 'VVVV'),
-    120: ('SUBSTITUTE',       3,  4, 0x04,  4, 'V', 'VVVV'),
-    121: ('CODE',             1,  1, 0x02,  1, 'V', 'V'),
-    124: ('FIND',             2,  3, 0x04,  3, 'V', 'VVV'),
-    125: ('CELL',             1,  2, 0x0c,  2, 'V', 'VR'),
-    126: ('ISERR',            1,  1, 0x02,  1, 'V', 'V'),
-    127: ('ISTEXT',           1,  1, 0x02,  1, 'V', 'V'),
-    128: ('ISNUMBER',         1,  1, 0x02,  1, 'V', 'V'),
-    129: ('ISBLANK',          1,  1, 0x02,  1, 'V', 'V'),
-    130: ('T',                1,  1, 0x02,  1, 'V', 'R'),
-    131: ('N',                1,  1, 0x02,  1, 'V', 'R'),
-    140: ('DATEVALUE',        1,  1, 0x02,  1, 'V', 'V'),
-    141: ('TIMEVALUE',        1,  1, 0x02,  1, 'V', 'V'),
-    142: ('SLN',              3,  3, 0x02,  3, 'V', 'VVV'),
-    143: ('SYD',              4,  4, 0x02,  4, 'V', 'VVVV'),
-    144: ('DDB',              4,  5, 0x04,  5, 'V', 'VVVVV'),
-    148: ('INDIRECT',         1,  2, 0x0c,  2, 'R', 'VV'),
-    162: ('CLEAN',            1,  1, 0x02,  1, 'V', 'V'),
-    163: ('MDETERM',          1,  1, 0x02,  1, 'V', 'A'),
-    164: ('MINVERSE',         1,  1, 0x02,  1, 'A', 'A'),
-    165: ('MMULT',            2,  2, 0x02,  2, 'A', 'AA'),
-    167: ('IPMT',             4,  6, 0x04,  6, 'V', 'VVVVVV'),
-    168: ('PPMT',             4,  6, 0x04,  6, 'V', 'VVVVVV'),
-    169: ('COUNTA',           0, 30, 0x04,  1, 'V', 'R'),
-    183: ('PRODUCT',          0, 30, 0x04,  1, 'V', 'R'),
-    184: ('FACT',             1,  1, 0x02,  1, 'V', 'V'),
-    189: ('DPRODUCT',         3,  3, 0x02,  3, 'V', 'RRR'),
-    190: ('ISNONTEXT',        1,  1, 0x02,  1, 'V', 'V'),
-    193: ('STDEVP',           1, 30, 0x04,  1, 'V', 'R'),
-    194: ('VARP',             1, 30, 0x04,  1, 'V', 'R'),
-    195: ('DSTDEVP',          3,  3, 0x02,  3, 'V', 'RRR'),
-    196: ('DVARP',            3,  3, 0x02,  3, 'V', 'RRR'),
-    197: ('TRUNC',            1,  2, 0x04,  2, 'V', 'VV'),
-    198: ('ISLOGICAL',        1,  1, 0x02,  1, 'V', 'V'),
-    199: ('DCOUNTA',          3,  3, 0x02,  3, 'V', 'RRR'),
-    204: ('USDOLLAR',         1,  2, 0x04,  2, 'V', 'VV'),
-    205: ('FINDB',            2,  3, 0x04,  3, 'V', 'VVV'),
-    206: ('SEARCHB',          2,  3, 0x04,  3, 'V', 'VVV'),
-    207: ('REPLACEB',         4,  4, 0x02,  4, 'V', 'VVVV'),
-    208: ('LEFTB',            1,  2, 0x04,  2, 'V', 'VV'),
-    209: ('RIGHTB',           1,  2, 0x04,  2, 'V', 'VV'),
-    210: ('MIDB',             3,  3, 0x02,  3, 'V', 'VVV'),
-    211: ('LENB',             1,  1, 0x02,  1, 'V', 'V'),
-    212: ('ROUNDUP',          2,  2, 0x02,  2, 'V', 'VV'),
-    213: ('ROUNDDOWN',        2,  2, 0x02,  2, 'V', 'VV'),
-    214: ('ASC',              1,  1, 0x02,  1, 'V', 'V'),
-    215: ('DBCS',             1,  1, 0x02,  1, 'V', 'V'),
-    216: ('RANK',             2,  3, 0x04,  3, 'V', 'VRV'),
-    219: ('ADDRESS',          2,  5, 0x04,  5, 'V', 'VVVVV'),
-    220: ('DAYS360',          2,  3, 0x04,  3, 'V', 'VVV'),
-    221: ('TODAY',            0,  0, 0x0a,  0, 'V', ''),
-    222: ('VDB',              5,  7, 0x04,  7, 'V', 'VVVVVVV'),
-    227: ('MEDIAN',           1, 30, 0x04,  1, 'V', 'R'),
-    228: ('SUMPRODUCT',       1, 30, 0x04,  1, 'V', 'A'),
-    229: ('SINH',             1,  1, 0x02,  1, 'V', 'V'),
-    230: ('COSH',             1,  1, 0x02,  1, 'V', 'V'),
-    231: ('TANH',             1,  1, 0x02,  1, 'V', 'V'),
-    232: ('ASINH',            1,  1, 0x02,  1, 'V', 'V'),
-    233: ('ACOSH',            1,  1, 0x02,  1, 'V', 'V'),
-    234: ('ATANH',            1,  1, 0x02,  1, 'V', 'V'),
-    235: ('DGET',             3,  3, 0x02,  3, 'V', 'RRR'),
-    244: ('INFO',             1,  1, 0x02,  1, 'V', 'V'),
-    247: ('DB',               4,  5, 0x04,  5, 'V', 'VVVVV'),
-    252: ('FREQUENCY',        2,  2, 0x02,  2, 'A', 'RR'),
-    261: ('ERROR.TYPE',       1,  1, 0x02,  1, 'V', 'V'),
-    269: ('AVEDEV',           1, 30, 0x04,  1, 'V', 'R'),
-    270: ('BETADIST',         3,  5, 0x04,  1, 'V', 'V'),
-    271: ('GAMMALN',          1,  1, 0x02,  1, 'V', 'V'),
-    272: ('BETAINV',          3,  5, 0x04,  1, 'V', 'V'),
-    273: ('BINOMDIST',        4,  4, 0x02,  4, 'V', 'VVVV'),
-    274: ('CHIDIST',          2,  2, 0x02,  2, 'V', 'VV'),
-    275: ('CHIINV',           2,  2, 0x02,  2, 'V', 'VV'),
-    276: ('COMBIN',           2,  2, 0x02,  2, 'V', 'VV'),
-    277: ('CONFIDENCE',       3,  3, 0x02,  3, 'V', 'VVV'),
-    278: ('CRITBINOM',        3,  3, 0x02,  3, 'V', 'VVV'),
-    279: ('EVEN',             1,  1, 0x02,  1, 'V', 'V'),
-    280: ('EXPONDIST',        3,  3, 0x02,  3, 'V', 'VVV'),
-    281: ('FDIST',            3,  3, 0x02,  3, 'V', 'VVV'),
-    282: ('FINV',             3,  3, 0x02,  3, 'V', 'VVV'),
-    283: ('FISHER',           1,  1, 0x02,  1, 'V', 'V'),
-    284: ('FISHERINV',        1,  1, 0x02,  1, 'V', 'V'),
-    285: ('FLOOR',            2,  2, 0x02,  2, 'V', 'VV'),
-    286: ('GAMMADIST',        4,  4, 0x02,  4, 'V', 'VVVV'),
-    287: ('GAMMAINV',         3,  3, 0x02,  3, 'V', 'VVV'),
-    288: ('CEILING',          2,  2, 0x02,  2, 'V', 'VV'),
-    289: ('HYPGEOMDIST',      4,  4, 0x02,  4, 'V', 'VVVV'),
-    290: ('LOGNORMDIST',      3,  3, 0x02,  3, 'V', 'VVV'),
-    291: ('LOGINV',           3,  3, 0x02,  3, 'V', 'VVV'),
-    292: ('NEGBINOMDIST',     3,  3, 0x02,  3, 'V', 'VVV'),
-    293: ('NORMDIST',         4,  4, 0x02,  4, 'V', 'VVVV'),
-    294: ('NORMSDIST',        1,  1, 0x02,  1, 'V', 'V'),
-    295: ('NORMINV',          3,  3, 0x02,  3, 'V', 'VVV'),
-    296: ('NORMSINV',         1,  1, 0x02,  1, 'V', 'V'),
-    297: ('STANDARDIZE',      3,  3, 0x02,  3, 'V', 'VVV'),
-    298: ('ODD',              1,  1, 0x02,  1, 'V', 'V'),
-    299: ('PERMUT',           2,  2, 0x02,  2, 'V', 'VV'),
-    300: ('POISSON',          3,  3, 0x02,  3, 'V', 'VVV'),
-    301: ('TDIST',            3,  3, 0x02,  3, 'V', 'VVV'),
-    302: ('WEIBULL',          4,  4, 0x02,  4, 'V', 'VVVV'),
-    303: ('SUMXMY2',          2,  2, 0x02,  2, 'V', 'AA'),
-    304: ('SUMX2MY2',         2,  2, 0x02,  2, 'V', 'AA'),
-    305: ('SUMX2PY2',         2,  2, 0x02,  2, 'V', 'AA'),
-    306: ('CHITEST',          2,  2, 0x02,  2, 'V', 'AA'),
-    307: ('CORREL',           2,  2, 0x02,  2, 'V', 'AA'),
-    308: ('COVAR',            2,  2, 0x02,  2, 'V', 'AA'),
-    309: ('FORECAST',         3,  3, 0x02,  3, 'V', 'VAA'),
-    310: ('FTEST',            2,  2, 0x02,  2, 'V', 'AA'),
-    311: ('INTERCEPT',        2,  2, 0x02,  2, 'V', 'AA'),
-    312: ('PEARSON',          2,  2, 0x02,  2, 'V', 'AA'),
-    313: ('RSQ',              2,  2, 0x02,  2, 'V', 'AA'),
-    314: ('STEYX',            2,  2, 0x02,  2, 'V', 'AA'),
-    315: ('SLOPE',            2,  2, 0x02,  2, 'V', 'AA'),
-    316: ('TTEST',            4,  4, 0x02,  4, 'V', 'AAVV'),
-    317: ('PROB',             3,  4, 0x04,  3, 'V', 'AAV'),
-    318: ('DEVSQ',            1, 30, 0x04,  1, 'V', 'R'),
-    319: ('GEOMEAN',          1, 30, 0x04,  1, 'V', 'R'),
-    320: ('HARMEAN',          1, 30, 0x04,  1, 'V', 'R'),
-    321: ('SUMSQ',            0, 30, 0x04,  1, 'V', 'R'),
-    322: ('KURT',             1, 30, 0x04,  1, 'V', 'R'),
-    323: ('SKEW',             1, 30, 0x04,  1, 'V', 'R'),
-    324: ('ZTEST',            2,  3, 0x04,  2, 'V', 'RV'),
-    325: ('LARGE',            2,  2, 0x02,  2, 'V', 'RV'),
-    326: ('SMALL',            2,  2, 0x02,  2, 'V', 'RV'),
-    327: ('QUARTILE',         2,  2, 0x02,  2, 'V', 'RV'),
-    328: ('PERCENTILE',       2,  2, 0x02,  2, 'V', 'RV'),
-    329: ('PERCENTRANK',      2,  3, 0x04,  2, 'V', 'RV'),
-    330: ('MODE',             1, 30, 0x04,  1, 'V', 'A'),
-    331: ('TRIMMEAN',         2,  2, 0x02,  2, 'V', 'RV'),
-    332: ('TINV',             2,  2, 0x02,  2, 'V', 'VV'),
-    336: ('CONCATENATE',      0, 30, 0x04,  1, 'V', 'V'),
-    337: ('POWER',            2,  2, 0x02,  2, 'V', 'VV'),
-    342: ('RADIANS',          1,  1, 0x02,  1, 'V', 'V'),
-    343: ('DEGREES',          1,  1, 0x02,  1, 'V', 'V'),
-    344: ('SUBTOTAL',         2, 30, 0x04,  2, 'V', 'VR'),
-    345: ('SUMIF',            2,  3, 0x04,  3, 'V', 'RVR'),
-    346: ('COUNTIF',          2,  2, 0x02,  2, 'V', 'RV'),
-    347: ('COUNTBLANK',       1,  1, 0x02,  1, 'V', 'R'),
-    350: ('ISPMT',            4,  4, 0x02,  4, 'V', 'VVVV'),
-    351: ('DATEDIF',          3,  3, 0x02,  3, 'V', 'VVV'),
-    352: ('DATESTRING',       1,  1, 0x02,  1, 'V', 'V'),
-    353: ('NUMBERSTRING',     2,  2, 0x02,  2, 'V', 'VV'),
-    354: ('ROMAN',            1,  2, 0x04,  2, 'V', 'VV'),
-    358: ('GETPIVOTDATA',     2,  2, 0x02,  2, 'V', 'RV'),
-    359: ('HYPERLINK',        1,  2, 0x04,  2, 'V', 'VV'),
-    360: ('PHONETIC',         1,  1, 0x02,  1, 'V', 'V'),
-    361: ('AVERAGEA',         1, 30, 0x04,  1, 'V', 'R'),
-    362: ('MAXA',             1, 30, 0x04,  1, 'V', 'R'),
-    363: ('MINA',             1, 30, 0x04,  1, 'V', 'R'),
-    364: ('STDEVPA',          1, 30, 0x04,  1, 'V', 'R'),
-    365: ('VARPA',            1, 30, 0x04,  1, 'V', 'R'),
-    366: ('STDEVA',           1, 30, 0x04,  1, 'V', 'R'),
-    367: ('VARA',             1, 30, 0x04,  1, 'V', 'R'),
-    368: ('BAHTTEXT',         1,  1, 0x02,  1, 'V', 'V'),
-    369: ('THAIDAYOFWEEK',    1,  1, 0x02,  1, 'V', 'V'),
-    370: ('THAIDIGIT',        1,  1, 0x02,  1, 'V', 'V'),
-    371: ('THAIMONTHOFYEAR',  1,  1, 0x02,  1, 'V', 'V'),
-    372: ('THAINUMSOUND',     1,  1, 0x02,  1, 'V', 'V'),
-    373: ('THAINUMSTRING',    1,  1, 0x02,  1, 'V', 'V'),
-    374: ('THAISTRINGLENGTH', 1,  1, 0x02,  1, 'V', 'V'),
-    375: ('ISTHAIDIGIT',      1,  1, 0x02,  1, 'V', 'V'),
-    376: ('ROUNDBAHTDOWN',    1,  1, 0x02,  1, 'V', 'V'),
-    377: ('ROUNDBAHTUP',      1,  1, 0x02,  1, 'V', 'V'),
-    378: ('THAIYEAR',         1,  1, 0x02,  1, 'V', 'V'),
-    379: ('RTD',              2,  5, 0x04,  1, 'V', 'V'),
-    }
+    {0  , T("COUNT",            0, 30, 0x04,  1, "V", "R")},
+    {1  , T("IF",               2,  3, 0x04,  3, "V", "VRR")},
+    {2  , T("ISNA",             1,  1, 0x02,  1, "V", "V")},
+    {3  , T("ISERROR",          1,  1, 0x02,  1, "V", "V")},
+    {4  , T("SUM",              0, 30, 0x04,  1, "V", "R")},
+    {5  , T("AVERAGE",          1, 30, 0x04,  1, "V", "R")},
+    {6  , T("MIN",              1, 30, 0x04,  1, "V", "R")},
+    {7  , T("MAX",              1, 30, 0x04,  1, "V", "R")},
+    {8  , T("ROW",              0,  1, 0x04,  1, "V", "R")},
+    {9  , T("COLUMN",           0,  1, 0x04,  1, "V", "R")},
+    {10 , T("NA",               0,  0, 0x02,  0, "V", "")},
+    {11 , T("NPV",              2, 30, 0x04,  2, "V", "VR")},
+    {12 , T("STDEV",            1, 30, 0x04,  1, "V", "R")},
+    {13 , T("DOLLAR",           1,  2, 0x04,  1, "V", "V")},
+    {14 , T("FIXED",            2,  3, 0x04,  3, "V", "VVV")},
+    {15 , T("SIN",              1,  1, 0x02,  1, "V", "V")},
+    {16 , T("COS",              1,  1, 0x02,  1, "V", "V")},
+    {17 , T("TAN",              1,  1, 0x02,  1, "V", "V")},
+    {18 , T("ATAN",             1,  1, 0x02,  1, "V", "V")},
+    {19 , T("PI",               0,  0, 0x02,  0, "V", "")},
+    {20 , T("SQRT",             1,  1, 0x02,  1, "V", "V")},
+    {21 , T("EXP",              1,  1, 0x02,  1, "V", "V")},
+    {22 , T("LN",               1,  1, 0x02,  1, "V", "V")},
+    {23 , T("LOG10",            1,  1, 0x02,  1, "V", "V")},
+    {24 , T("ABS",              1,  1, 0x02,  1, "V", "V")},
+    {25 , T("INT",              1,  1, 0x02,  1, "V", "V")},
+    {26 , T("SIGN",             1,  1, 0x02,  1, "V", "V")},
+    {27 , T("ROUND",            2,  2, 0x02,  2, "V", "VV")},
+    {28 , T("LOOKUP",           2,  3, 0x04,  2, "V", "VR")},
+    {29 , T("INDEX",            2,  4, 0x0c,  4, "R", "RVVV")},
+    {30 , T("REPT",             2,  2, 0x02,  2, "V", "VV")},
+    {31 , T("MID",              3,  3, 0x02,  3, "V", "VVV")},
+    {32 , T("LEN",              1,  1, 0x02,  1, "V", "V")},
+    {33 , T("VALUE",            1,  1, 0x02,  1, "V", "V")},
+    {34 , T("TRUE",             0,  0, 0x02,  0, "V", "")},
+    {35 , T("FALSE",            0,  0, 0x02,  0, "V", "")},
+    {36 , T("AND",              1, 30, 0x04,  1, "V", "R")},
+    {37 , T("OR",               1, 30, 0x04,  1, "V", "R")},
+    {38 , T("NOT",              1,  1, 0x02,  1, "V", "V")},
+    {39 , T("MOD",              2,  2, 0x02,  2, "V", "VV")},
+    {40 , T("DCOUNT",           3,  3, 0x02,  3, "V", "RRR")},
+    {41 , T("DSUM",             3,  3, 0x02,  3, "V", "RRR")},
+    {42 , T("DAVERAGE",         3,  3, 0x02,  3, "V", "RRR")},
+    {43 , T("DMIN",             3,  3, 0x02,  3, "V", "RRR")},
+    {44 , T("DMAX",             3,  3, 0x02,  3, "V", "RRR")},
+    {45 , T("DSTDEV",           3,  3, 0x02,  3, "V", "RRR")},
+    {46 , T("VAR",              1, 30, 0x04,  1, "V", "R")},
+    {47 , T("DVAR",             3,  3, 0x02,  3, "V", "RRR")},
+    {48 , T("TEXT",             2,  2, 0x02,  2, "V", "VV")},
+    {49 , T("LINEST",           1,  4, 0x04,  4, "A", "RRVV")},
+    {50 , T("TREND",            1,  4, 0x04,  4, "A", "RRRV")},
+    {51 , T("LOGEST",           1,  4, 0x04,  4, "A", "RRVV")},
+    {52 , T("GROWTH",           1,  4, 0x04,  4, "A", "RRRV")},
+    {56 , T("PV",               3,  5, 0x04,  5, "V", "VVVVV")},
+    {57 , T("FV",               3,  5, 0x04,  5, "V", "VVVVV")},
+    {58 , T("NPER",             3,  5, 0x04,  5, "V", "VVVVV")},
+    {59 , T("PMT",              3,  5, 0x04,  5, "V", "VVVVV")},
+    {60 , T("RATE",             3,  6, 0x04,  6, "V", "VVVVVV")},
+    {61 , T("MIRR",             3,  3, 0x02,  3, "V", "RVV")},
+    {62 , T("IRR",              1,  2, 0x04,  2, "V", "RV")},
+    {63 , T("RAND",             0,  0, 0x0a,  0, "V", "")},
+    {64 , T("MATCH",            2,  3, 0x04,  3, "V", "VRR")},
+    {65 , T("DATE",             3,  3, 0x02,  3, "V", "VVV")},
+    {66 , T("TIME",             3,  3, 0x02,  3, "V", "VVV")},
+    {67 , T("DAY",              1,  1, 0x02,  1, "V", "V")},
+    {68 , T("MONTH",            1,  1, 0x02,  1, "V", "V")},
+    {69 , T("YEAR",             1,  1, 0x02,  1, "V", "V")},
+    {70 , T("WEEKDAY",          1,  2, 0x04,  2, "V", "VV")},
+    {71 , T("HOUR",             1,  1, 0x02,  1, "V", "V")},
+    {72 , T("MINUTE",           1,  1, 0x02,  1, "V", "V")},
+    {73 , T("SECOND",           1,  1, 0x02,  1, "V", "V")},
+    {74 , T("NOW",              0,  0, 0x0a,  0, "V", "")},
+    {75 , T("AREAS",            1,  1, 0x02,  1, "V", "R")},
+    {76 , T("ROWS",             1,  1, 0x02,  1, "V", "R")},
+    {77 , T("COLUMNS",          1,  1, 0x02,  1, "V", "R")},
+    {78 , T("OFFSET",           3,  5, 0x04,  5, "R", "RVVVV")},
+    {82 , T("SEARCH",           2,  3, 0x04,  3, "V", "VVV")},
+    {83 , T("TRANSPOSE",        1,  1, 0x02,  1, "A", "A")},
+    {86 , T("TYPE",             1,  1, 0x02,  1, "V", "V")},
+    {92 , T("SERIESSUM",        4,  4, 0x02,  4, "V", "VVVA")},
+    {97 , T("ATAN2",            2,  2, 0x02,  2, "V", "VV")},
+    {98 , T("ASIN",             1,  1, 0x02,  1, "V", "V")},
+    {99 , T("ACOS",             1,  1, 0x02,  1, "V", "V")},
+    {100, T("CHOOSE",           2, 30, 0x04,  2, "V", "VR")},
+    {101, T("HLOOKUP",          3,  4, 0x04,  4, "V", "VRRV")},
+    {102, T("VLOOKUP",          3,  4, 0x04,  4, "V", "VRRV")},
+    {105, T("ISREF",            1,  1, 0x02,  1, "V", "R")},
+    {109, T("LOG",              1,  2, 0x04,  2, "V", "VV")},
+    {111, T("CHAR",             1,  1, 0x02,  1, "V", "V")},
+    {112, T("LOWER",            1,  1, 0x02,  1, "V", "V")},
+    {113, T("UPPER",            1,  1, 0x02,  1, "V", "V")},
+    {114, T("PROPER",           1,  1, 0x02,  1, "V", "V")},
+    {115, T("LEFT",             1,  2, 0x04,  2, "V", "VV")},
+    {116, T("RIGHT",            1,  2, 0x04,  2, "V", "VV")},
+    {117, T("EXACT",            2,  2, 0x02,  2, "V", "VV")},
+    {118, T("TRIM",             1,  1, 0x02,  1, "V", "V")},
+    {119, T("REPLACE",          4,  4, 0x02,  4, "V", "VVVV")},
+    {120, T("SUBSTITUTE",       3,  4, 0x04,  4, "V", "VVVV")},
+    {121, T("CODE",             1,  1, 0x02,  1, "V", "V")},
+    {124, T("FIND",             2,  3, 0x04,  3, "V", "VVV")},
+    {125, T("CELL",             1,  2, 0x0c,  2, "V", "VR")},
+    {126, T("ISERR",            1,  1, 0x02,  1, "V", "V")},
+    {127, T("ISTEXT",           1,  1, 0x02,  1, "V", "V")},
+    {128, T("ISNUMBER",         1,  1, 0x02,  1, "V", "V")},
+    {129, T("ISBLANK",          1,  1, 0x02,  1, "V", "V")},
+    {130, T("T",                1,  1, 0x02,  1, "V", "R")},
+    {131, T("N",                1,  1, 0x02,  1, "V", "R")},
+    {140, T("DATEVALUE",        1,  1, 0x02,  1, "V", "V")},
+    {141, T("TIMEVALUE",        1,  1, 0x02,  1, "V", "V")},
+    {142, T("SLN",              3,  3, 0x02,  3, "V", "VVV")},
+    {143, T("SYD",              4,  4, 0x02,  4, "V", "VVVV")},
+    {144, T("DDB",              4,  5, 0x04,  5, "V", "VVVVV")},
+    {148, T("INDIRECT",         1,  2, 0x0c,  2, "R", "VV")},
+    {162, T("CLEAN",            1,  1, 0x02,  1, "V", "V")},
+    {163, T("MDETERM",          1,  1, 0x02,  1, "V", "A")},
+    {164, T("MINVERSE",         1,  1, 0x02,  1, "A", "A")},
+    {165, T("MMULT",            2,  2, 0x02,  2, "A", "AA")},
+    {167, T("IPMT",             4,  6, 0x04,  6, "V", "VVVVVV")},
+    {168, T("PPMT",             4,  6, 0x04,  6, "V", "VVVVVV")},
+    {169, T("COUNTA",           0, 30, 0x04,  1, "V", "R")},
+    {183, T("PRODUCT",          0, 30, 0x04,  1, "V", "R")},
+    {184, T("FACT",             1,  1, 0x02,  1, "V", "V")},
+    {189, T("DPRODUCT",         3,  3, 0x02,  3, "V", "RRR")},
+    {190, T("ISNONTEXT",        1,  1, 0x02,  1, "V", "V")},
+    {193, T("STDEVP",           1, 30, 0x04,  1, "V", "R")},
+    {194, T("VARP",             1, 30, 0x04,  1, "V", "R")},
+    {195, T("DSTDEVP",          3,  3, 0x02,  3, "V", "RRR")},
+    {196, T("DVARP",            3,  3, 0x02,  3, "V", "RRR")},
+    {197, T("TRUNC",            1,  2, 0x04,  2, "V", "VV")},
+    {198, T("ISLOGICAL",        1,  1, 0x02,  1, "V", "V")},
+    {199, T("DCOUNTA",          3,  3, 0x02,  3, "V", "RRR")},
+    {204, T("USDOLLAR",         1,  2, 0x04,  2, "V", "VV")},
+    {205, T("FINDB",            2,  3, 0x04,  3, "V", "VVV")},
+    {206, T("SEARCHB",          2,  3, 0x04,  3, "V", "VVV")},
+    {207, T("REPLACEB",         4,  4, 0x02,  4, "V", "VVVV")},
+    {208, T("LEFTB",            1,  2, 0x04,  2, "V", "VV")},
+    {209, T("RIGHTB",           1,  2, 0x04,  2, "V", "VV")},
+    {210, T("MIDB",             3,  3, 0x02,  3, "V", "VVV")},
+    {211, T("LENB",             1,  1, 0x02,  1, "V", "V")},
+    {212, T("ROUNDUP",          2,  2, 0x02,  2, "V", "VV")},
+    {213, T("ROUNDDOWN",        2,  2, 0x02,  2, "V", "VV")},
+    {214, T("ASC",              1,  1, 0x02,  1, "V", "V")},
+    {215, T("DBCS",             1,  1, 0x02,  1, "V", "V")},
+    {216, T("RANK",             2,  3, 0x04,  3, "V", "VRV")},
+    {219, T("ADDRESS",          2,  5, 0x04,  5, "V", "VVVVV")},
+    {220, T("DAYS360",          2,  3, 0x04,  3, "V", "VVV")},
+    {221, T("TODAY",            0,  0, 0x0a,  0, "V", "")},
+    {222, T("VDB",              5,  7, 0x04,  7, "V", "VVVVVVV")},
+    {227, T("MEDIAN",           1, 30, 0x04,  1, "V", "R")},
+    {228, T("SUMPRODUCT",       1, 30, 0x04,  1, "V", "A")},
+    {229, T("SINH",             1,  1, 0x02,  1, "V", "V")},
+    {230, T("COSH",             1,  1, 0x02,  1, "V", "V")},
+    {231, T("TANH",             1,  1, 0x02,  1, "V", "V")},
+    {232, T("ASINH",            1,  1, 0x02,  1, "V", "V")},
+    {233, T("ACOSH",            1,  1, 0x02,  1, "V", "V")},
+    {234, T("ATANH",            1,  1, 0x02,  1, "V", "V")},
+    {235, T("DGET",             3,  3, 0x02,  3, "V", "RRR")},
+    {244, T("INFO",             1,  1, 0x02,  1, "V", "V")},
+    {247, T("DB",               4,  5, 0x04,  5, "V", "VVVVV")},
+    {252, T("FREQUENCY",        2,  2, 0x02,  2, "A", "RR")},
+    {261, T("ERROR.TYPE",       1,  1, 0x02,  1, "V", "V")},
+    {269, T("AVEDEV",           1, 30, 0x04,  1, "V", "R")},
+    {270, T("BETADIST",         3,  5, 0x04,  1, "V", "V")},
+    {271, T("GAMMALN",          1,  1, 0x02,  1, "V", "V")},
+    {272, T("BETAINV",          3,  5, 0x04,  1, "V", "V")},
+    {273, T("BINOMDIST",        4,  4, 0x02,  4, "V", "VVVV")},
+    {274, T("CHIDIST",          2,  2, 0x02,  2, "V", "VV")},
+    {275, T("CHIINV",           2,  2, 0x02,  2, "V", "VV")},
+    {276, T("COMBIN",           2,  2, 0x02,  2, "V", "VV")},
+    {277, T("CONFIDENCE",       3,  3, 0x02,  3, "V", "VVV")},
+    {278, T("CRITBINOM",        3,  3, 0x02,  3, "V", "VVV")},
+    {279, T("EVEN",             1,  1, 0x02,  1, "V", "V")},
+    {280, T("EXPONDIST",        3,  3, 0x02,  3, "V", "VVV")},
+    {281, T("FDIST",            3,  3, 0x02,  3, "V", "VVV")},
+    {282, T("FINV",             3,  3, 0x02,  3, "V", "VVV")},
+    {283, T("FISHER",           1,  1, 0x02,  1, "V", "V")},
+    {284, T("FISHERINV",        1,  1, 0x02,  1, "V", "V")},
+    {285, T("FLOOR",            2,  2, 0x02,  2, "V", "VV")},
+    {286, T("GAMMADIST",        4,  4, 0x02,  4, "V", "VVVV")},
+    {287, T("GAMMAINV",         3,  3, 0x02,  3, "V", "VVV")},
+    {288, T("CEILING",          2,  2, 0x02,  2, "V", "VV")},
+    {289, T("HYPGEOMDIST",      4,  4, 0x02,  4, "V", "VVVV")},
+    {290, T("LOGNORMDIST",      3,  3, 0x02,  3, "V", "VVV")},
+    {291, T("LOGINV",           3,  3, 0x02,  3, "V", "VVV")},
+    {292, T("NEGBINOMDIST",     3,  3, 0x02,  3, "V", "VVV")},
+    {293, T("NORMDIST",         4,  4, 0x02,  4, "V", "VVVV")},
+    {294, T("NORMSDIST",        1,  1, 0x02,  1, "V", "V")},
+    {295, T("NORMINV",          3,  3, 0x02,  3, "V", "VVV")},
+    {296, T("NORMSINV",         1,  1, 0x02,  1, "V", "V")},
+    {297, T("STANDARDIZE",      3,  3, 0x02,  3, "V", "VVV")},
+    {298, T("ODD",              1,  1, 0x02,  1, "V", "V")},
+    {299, T("PERMUT",           2,  2, 0x02,  2, "V", "VV")},
+    {300, T("POISSON",          3,  3, 0x02,  3, "V", "VVV")},
+    {301, T("TDIST",            3,  3, 0x02,  3, "V", "VVV")},
+    {302, T("WEIBULL",          4,  4, 0x02,  4, "V", "VVVV")},
+    {303, T("SUMXMY2",          2,  2, 0x02,  2, "V", "AA")},
+    {304, T("SUMX2MY2",         2,  2, 0x02,  2, "V", "AA")},
+    {305, T("SUMX2PY2",         2,  2, 0x02,  2, "V", "AA")},
+    {306, T("CHITEST",          2,  2, 0x02,  2, "V", "AA")},
+    {307, T("CORREL",           2,  2, 0x02,  2, "V", "AA")},
+    {308, T("COVAR",            2,  2, 0x02,  2, "V", "AA")},
+    {309, T("FORECAST",         3,  3, 0x02,  3, "V", "VAA")},
+    {310, T("FTEST",            2,  2, 0x02,  2, "V", "AA")},
+    {311, T("INTERCEPT",        2,  2, 0x02,  2, "V", "AA")},
+    {312, T("PEARSON",          2,  2, 0x02,  2, "V", "AA")},
+    {313, T("RSQ",              2,  2, 0x02,  2, "V", "AA")},
+    {314, T("STEYX",            2,  2, 0x02,  2, "V", "AA")},
+    {315, T("SLOPE",            2,  2, 0x02,  2, "V", "AA")},
+    {316, T("TTEST",            4,  4, 0x02,  4, "V", "AAVV")},
+    {317, T("PROB",             3,  4, 0x04,  3, "V", "AAV")},
+    {318, T("DEVSQ",            1, 30, 0x04,  1, "V", "R")},
+    {319, T("GEOMEAN",          1, 30, 0x04,  1, "V", "R")},
+    {320, T("HARMEAN",          1, 30, 0x04,  1, "V", "R")},
+    {321, T("SUMSQ",            0, 30, 0x04,  1, "V", "R")},
+    {322, T("KURT",             1, 30, 0x04,  1, "V", "R")},
+    {323, T("SKEW",             1, 30, 0x04,  1, "V", "R")},
+    {324, T("ZTEST",            2,  3, 0x04,  2, "V", "RV")},
+    {325, T("LARGE",            2,  2, 0x02,  2, "V", "RV")},
+    {326, T("SMALL",            2,  2, 0x02,  2, "V", "RV")},
+    {327, T("QUARTILE",         2,  2, 0x02,  2, "V", "RV")},
+    {328, T("PERCENTILE",       2,  2, 0x02,  2, "V", "RV")},
+    {329, T("PERCENTRANK",      2,  3, 0x04,  2, "V", "RV")},
+    {330, T("MODE",             1, 30, 0x04,  1, "V", "A")},
+    {331, T("TRIMMEAN",         2,  2, 0x02,  2, "V", "RV")},
+    {332, T("TINV",             2,  2, 0x02,  2, "V", "VV")},
+    {336, T("CONCATENATE",      0, 30, 0x04,  1, "V", "V")},
+    {337, T("POWER",            2,  2, 0x02,  2, "V", "VV")},
+    {342, T("RADIANS",          1,  1, 0x02,  1, "V", "V")},
+    {343, T("DEGREES",          1,  1, 0x02,  1, "V", "V")},
+    {344, T("SUBTOTAL",         2, 30, 0x04,  2, "V", "VR")},
+    {345, T("SUMIF",            2,  3, 0x04,  3, "V", "RVR")},
+    {346, T("COUNTIF",          2,  2, 0x02,  2, "V", "RV")},
+    {347, T("COUNTBLANK",       1,  1, 0x02,  1, "V", "R")},
+    {350, T("ISPMT",            4,  4, 0x02,  4, "V", "VVVV")},
+    {351, T("DATEDIF",          3,  3, 0x02,  3, "V", "VVV")},
+    {352, T("DATESTRING",       1,  1, 0x02,  1, "V", "V")},
+    {353, T("NUMBERSTRING",     2,  2, 0x02,  2, "V", "VV")},
+    {354, T("ROMAN",            1,  2, 0x04,  2, "V", "VV")},
+    {358, T("GETPIVOTDATA",     2,  2, 0x02,  2, "V", "RV")},
+    {359, T("HYPERLINK",        1,  2, 0x04,  2, "V", "VV")},
+    {360, T("PHONETIC",         1,  1, 0x02,  1, "V", "V")},
+    {361, T("AVERAGEA",         1, 30, 0x04,  1, "V", "R")},
+    {362, T("MAXA",             1, 30, 0x04,  1, "V", "R")},
+    {363, T("MINA",             1, 30, 0x04,  1, "V", "R")},
+    {364, T("STDEVPA",          1, 30, 0x04,  1, "V", "R")},
+    {365, T("VARPA",            1, 30, 0x04,  1, "V", "R")},
+    {366, T("STDEVA",           1, 30, 0x04,  1, "V", "R")},
+    {367, T("VARA",             1, 30, 0x04,  1, "V", "R")},
+    {368, T("BAHTTEXT",         1,  1, 0x02,  1, "V", "V")},
+    {369, T("THAIDAYOFWEEK",    1,  1, 0x02,  1, "V", "V")},
+    {370, T("THAIDIGIT",        1,  1, 0x02,  1, "V", "V")},
+    {371, T("THAIMONTHOFYEAR",  1,  1, 0x02,  1, "V", "V")},
+    {372, T("THAINUMSOUND",     1,  1, 0x02,  1, "V", "V")},
+    {373, T("THAINUMSTRING",    1,  1, 0x02,  1, "V", "V")},
+    {374, T("THAISTRINGLENGTH", 1,  1, 0x02,  1, "V", "V")},
+    {375, T("ISTHAIDIGIT",      1,  1, 0x02,  1, "V", "V")},
+    {376, T("ROUNDBAHTDOWN",    1,  1, 0x02,  1, "V", "V")},
+    {377, T("ROUNDBAHTUP",      1,  1, 0x02,  1, "V", "V")},
+    {378, T("THAIYEAR",         1,  1, 0x02,  1, "V", "V")},
+    {379, T("RTD",              2,  5, 0x04,  1, "V", "V")},
+};
+#undef T
 
+static std::map<int, std::string>
 tAttrNames = {
-    0x00: "Skip??", // seen in SAMPLES.XLS which shipped with Excel 5.0
-    0x01: "Volatile",
-    0x02: "If",
-    0x04: "Choose",
-    0x08: "Skip",
-    0x10: "Sum",
-    0x20: "Assign",
-    0x40: "Space",
-    0x41: "SpaceVolatile",
-    }
+    {0x00, "Skip??"}, // seen in SAMPLES.XLS which shipped with Excel 5.0
+    {0x01, "Volatile"},
+    {0x02, "If"},
+    {0x04, "Choose"},
+    {0x08, "Skip"},
+    {0x10, "Sum"},
+    {0x20, "Assign"},
+    {0x40, "Space"},
+    {0x41, "SpaceVolatile"},
+};
 
-error_opcodes = set([0x07, 0x08, 0x0A, 0x0B, 0x1C, 0x1D, 0x2F])
+static std::set<int>
+error_opcodes = {0x07, 0x08, 0x0A, 0x0B, 0x1C, 0x1D, 0x2F};
 
-tRangeFuncs = (min, max, min, max, min, max)
-tIsectFuncs = (max, min, max, min, max, min)
+// tRangeFuncs = (min, max, min, max, min, max)
+// tIsectFuncs = (max, min, max, min, max, min)
 
+
+/*
 def do_box_funcs(box_funcs, boxa, boxb):
     return tuple([
         func(numa, numb)
         for func, numa, numb in zip(box_funcs, boxa.coords, boxb.coords)
         ])
+*/
 
-def adjust_cell_addr_biff8(rowval, colval, reldelta, browx=None, bcolx=None):
-    row_rel = (colval >> 15) & 1
-    col_rel = (colval >> 14) & 1
-    rowx = rowval
-    colx = colval & 0xff
-    if reldelta:
-        if row_rel and rowx >= 32768:
-            rowx -= 65536
-        if col_rel and colx >= 128:
-            colx -= 256
-    else:
-        if row_rel:
-            rowx -= browx
-        if col_rel:
-            colx -= bcolx
-    return rowx, colx, row_rel, col_rel
+inline
+std::tuple<int, int, int, int>
+adjust_cell_addr_biff8(int rowval, int colval, int reldelta, int browx, int bcolx) {
+    int row_rel = (colval >> 15) & 1;
+    int col_rel = (colval >> 14) & 1;
+    int rowx = rowval;
+    int colx = colval & 0xff;
+    if (reldelta) {
+        if (row_rel and rowx >= 32768) {
+            rowx -= 65536;
+        }
+        if (col_rel and colx >= 128) {
+            colx -= 256;
+        }
+    }
+    else {
+        if (row_rel) {
+            rowx -= browx;
+        }
+        if (col_rel) {
+            colx -= bcolx;
+        }
+    }
+    return std::make_tuple(rowx, colx, row_rel, col_rel);
+}
 
-def adjust_cell_addr_biff_le7(
-        rowval, colval, reldelta, browx=None, bcolx=None):
-    row_rel = (rowval >> 15) & 1
-    col_rel = (rowval >> 14) & 1
-    rowx = rowval & 0x3fff
-    colx = colval
-    if reldelta:
-        if row_rel and rowx >= 8192:
-            rowx -= 16384
-        if col_rel and colx >= 128:
-            colx -= 256
-    else:
-        if row_rel:
-            rowx -= browx
-        if col_rel:
-            colx -= bcolx
-    return rowx, colx, row_rel, col_rel
+inline
+std::tuple<int, int, int, int>
+adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int bcolx) {
+    int row_rel = (rowval >> 15) & 1;
+    int col_rel = (rowval >> 14) & 1;
+    int rowx = rowval & 0x3fff;
+    int colx = colval;
+    if (reldelta) {
+        if (row_rel and rowx >= 8192) {
+            rowx -= 16384;
+        }
+        if (col_rel and colx >= 128) {
+            colx -= 256;
+        }
+    }
+    else {
+        if (row_rel) {
+            rowx -= browx;
+        }
+        if (col_rel) {
+            colx -= bcolx;
+        }
+    }
+    return std::make_tuple(rowx, colx, row_rel, col_rel);
+}
 
-def get_cell_addr(data, pos, bv, reldelta, browx=None, bcolx=None):
-    if bv >= 80:
-        rowval, colval = unpack("<HH", data[pos:pos+4])
+inline
+std::tuple<int, int, int, int>
+get_cell_addr(std::vector<uint8_t> data, int pos, int bv, int reldelta, int browx, int bcolx) {
+    if (bv >= 80) {
+        int rowval, colval;
+        std::tie(rowval, colval) = structs::unpack_leHH(data, pos);
         // print "    rv=%04xh cv=%04xh" % (rowval, colval)
-        return adjust_cell_addr_biff8(rowval, colval, reldelta, browx, bcolx)
-    else:
-        rowval, colval = unpack("<HB", data[pos:pos+3])
+        return adjust_cell_addr_biff8(rowval, colval, reldelta, browx, bcolx);
+    }
+    else {
+        int rowval, colval;
+        std::tie(rowval, colval) = structs::unpack_leHB(data, pos);
         // print "    rv=%04xh cv=%04xh" % (rowval, colval)
         return adjust_cell_addr_biff_le7(
-                    rowval, colval, reldelta, browx, bcolx)
+                    rowval, colval, reldelta, browx, bcolx);
+    }
+}
 
+/*
 def get_cell_range_addr(data, pos, bv, reldelta, browx=None, bcolx=None):
     if bv >= 80:
         row1val, row2val, col1val, col2val = unpack("<HHHH", data[pos:pos+8])
