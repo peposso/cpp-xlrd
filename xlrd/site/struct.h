@@ -28,6 +28,24 @@ unpack_leHH(std::vector<uint8_t> vec, int pos = 0) {
 }
 
 inline
+std::tuple<uint16_t, uint16_t, uint16_t, uint16_t> 
+unpack_leHHHH(std::vector<uint8_t> vec, int pos = 0) {
+    return std::make_tuple(vec[pos+0] | (vec[pos+1] << 8),
+                           vec[pos+2] | (vec[pos+3] << 8),
+                           vec[pos+4] | (vec[pos+5] << 8),
+                           vec[pos+6] | (vec[pos+7] << 8));
+}
+
+inline
+std::tuple<uint16_t, uint16_t, uint16_t, uint16_t> 
+unpack_leHHBB(std::vector<uint8_t> vec, int pos = 0) {
+    return std::make_tuple(vec[pos+0] | (vec[pos+1] << 8),
+                           vec[pos+2] | (vec[pos+3] << 8),
+                           vec[pos+4],
+                           vec[pos+5]);
+}
+
+inline
 std::tuple<uint16_t, uint8_t> 
 unpack_leHB(std::vector<uint8_t> vec, int pos = 0) {
     return std::make_tuple(vec[pos] | (vec[pos+1] << 8),

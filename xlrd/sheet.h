@@ -31,9 +31,9 @@
 
 #include <vector>
 
-#include "biffh.h"  // __all__
-#include "formula.h"  // dump_formula, decompile_formula, rangename2d, FMLA_TYPE_CELL, FMLA_TYPE_SHARED
-#include "formatting.h"  // nearest_colour_index, Format
+#include "./biffh.h"  // __all__
+#include "./formula.h"  // dump_formula, decompile_formula, rangename2d, FMLA_TYPE_CELL, FMLA_TYPE_SHARED
+#include "./formatting.h"  // nearest_colour_index, Format
 
 namespace xlrd {
 namespace sheet {
@@ -83,28 +83,28 @@ _WINDOW2_options = {
 
 class Sheet
 {
-};
+public:
 
-/*
     ////
     // Name of sheet.
-    name = ''
+    std::string name = "";
 
     ////
     // A reference to the Book object to which this sheet belongs.
     // Example usage: some_sheet.book.datemode
-    book = None
+    Book* book = nullptr;
     
     ////
     // Number of rows in sheet. A row index is in range(thesheet.nrows).
-    nrows = 0
+    int nrows = 0;
 
     ////
     // Nominal number of columns in sheet. It is 1 + the maximum column index
     // found, ignoring trailing empty cells. See also open_workbook(ragged_rows=?)
     // and Sheet.{@link //Sheet.row_len}(row_index).
-    ncols = 0
+    int ncols = 0;
 
+/*
     ////
     // The map from a column index to a {@link //Colinfo} object. Often there is an entry
     // in COLINFO records for all column indexes in range(257).
@@ -2425,5 +2425,7 @@ class Rowinfo(BaseObject):
             ) = state
 
 */
+};
+
 }
 }

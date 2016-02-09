@@ -22,10 +22,13 @@
 #include <map>
 #include <exception>
 
-#include "utils.h"
+#include "./site/struct.h"
+#include "./utils.h"
 
 namespace xlrd {
 namespace biffh {
+
+namespace structs = xlrd::site::structs;
 
 static int DEBUG = 0;
 
@@ -377,193 +380,203 @@ unpack_unicode_update_pos(std::vector<uint8_t> data, int pos, int lenlen=2, int 
     }
     return std::make_tuple(strg, pos);
 }
-/*
-def unpack_cell_range_address_list_update_pos(
-    output_list, data, pos, biff_version, addr_size=6):
+
+inline
+int
+unpack_cell_range_address_list_update_pos(
+    std::vector<std::tuple<int, int, int, int>>* output_list,
+    std::vector<uint8_t>& data,
+    int pos, int biff_version,
+    int addr_size=6
+) {
     // output_list is updated in situ
-    assert addr_size in (6, 8)
+    // assert addr_size in (6, 8)
     // Used to assert size == 6 if not BIFF8, but pyWLWriter writes
     // BIFF8-only MERGEDCELLS records in a BIFF5 file!
-    n, = unpack("<H", data[pos:pos+2])
-    pos += 2
-    if n:
-        if addr_size == 6:
-            fmt = "<HHBB"
-        else:
-            fmt = "<HHHH"
-        for _unused in xrange(n):
-            ra, rb, ca, cb = unpack(fmt, data[pos:pos+addr_size])
-            output_list.append((ra, rb+1, ca, cb+1))
-            pos += addr_size
-    return pos
+    int n = structs::unpack_leH(data, pos);
+    pos += 2;
+    if (n) {
+        for (int i=0; i < n; i++) {
+            int ra, rb, ca, cb;
+            if (addr_size == 6) {
+                std::tie(ra, rb, ca, cb) = structs::unpack_leHHBB(data, pos);
+            } else {
+                std::tie(ra, rb, ca, cb) = structs::unpack_leHHHH(data, pos);
+            }
+            output_list->push_back(std::make_tuple(ra, rb+1, ca, cb+1));
+            pos += addr_size;
+        }
+    }
+    return pos;
+}
 
-_brecstrg = """\
-0000 DIMENSIONS_B2
-0001 BLANK_B2
-0002 INTEGER_B2_ONLY
-0003 NUMBER_B2
-0004 LABEL_B2
-0005 BOOLERR_B2
-0006 FORMULA
-0007 STRING_B2
-0008 ROW_B2
-0009 BOF_B2
-000A EOF
-000B INDEX_B2_ONLY
-000C CALCCOUNT
-000D CALCMODE
-000E PRECISION
-000F REFMODE
-0010 DELTA
-0011 ITERATION
-0012 PROTECT
-0013 PASSWORD
-0014 HEADER
-0015 FOOTER
-0016 EXTERNCOUNT
-0017 EXTERNSHEET
-0018 NAME_B2,5+
-0019 WINDOWPROTECT
-001A VERTICALPAGEBREAKS
-001B HORIZONTALPAGEBREAKS
-001C NOTE
-001D SELECTION
-001E FORMAT_B2-3
-001F BUILTINFMTCOUNT_B2
-0020 COLUMNDEFAULT_B2_ONLY
-0021 ARRAY_B2_ONLY
-0022 DATEMODE
-0023 EXTERNNAME
-0024 COLWIDTH_B2_ONLY
-0025 DEFAULTROWHEIGHT_B2_ONLY
-0026 LEFTMARGIN
-0027 RIGHTMARGIN
-0028 TOPMARGIN
-0029 BOTTOMMARGIN
-002A PRINTHEADERS
-002B PRINTGRIDLINES
-002F FILEPASS
-0031 FONT
-0032 FONT2_B2_ONLY
-0036 TABLEOP_B2
-0037 TABLEOP2_B2
-003C CONTINUE
-003D WINDOW1
-003E WINDOW2_B2
-0040 BACKUP
-0041 PANE
-0042 CODEPAGE
-0043 XF_B2
-0044 IXFE_B2_ONLY
-0045 EFONT_B2_ONLY
-004D PLS
-0051 DCONREF
-0055 DEFCOLWIDTH
-0056 BUILTINFMTCOUNT_B3-4
-0059 XCT
-005A CRN
-005B FILESHARING
-005C WRITEACCESS
-005D OBJECT
-005E UNCALCED
-005F SAVERECALC
-0063 OBJECTPROTECT
-007D COLINFO
-007E RK2_mythical_?
-0080 GUTS
-0081 WSBOOL
-0082 GRIDSET
-0083 HCENTER
-0084 VCENTER
-0085 BOUNDSHEET
-0086 WRITEPROT
-008C COUNTRY
-008D HIDEOBJ
-008E SHEETSOFFSET
-008F SHEETHDR
-0090 SORT
-0092 PALETTE
-0099 STANDARDWIDTH
-009B FILTERMODE
-009C FNGROUPCOUNT
-009D AUTOFILTERINFO
-009E AUTOFILTER
-00A0 SCL
-00A1 SETUP
-00AB GCW
-00BD MULRK
-00BE MULBLANK
-00C1 MMS
-00D6 RSTRING
-00D7 DBCELL
-00DA BOOKBOOL
-00DD SCENPROTECT
-00E0 XF
-00E1 INTERFACEHDR
-00E2 INTERFACEEND
-00E5 MERGEDCELLS
-00E9 BITMAP
-00EB MSO_DRAWING_GROUP
-00EC MSO_DRAWING
-00ED MSO_DRAWING_SELECTION
-00EF PHONETIC
-00FC SST
-00FD LABELSST
-00FF EXTSST
-013D TABID
-015F LABELRANGES
-0160 USESELFS
-0161 DSF
-01AE SUPBOOK
-01AF PROTECTIONREV4
-01B0 CONDFMT
-01B1 CF
-01B2 DVAL
-01B6 TXO
-01B7 REFRESHALL
-01B8 HLINK
-01BC PASSWORDREV4
-01BE DV
-01C0 XL9FILE
-01C1 RECALCID
-0200 DIMENSIONS
-0201 BLANK
-0203 NUMBER
-0204 LABEL
-0205 BOOLERR
-0206 FORMULA_B3
-0207 STRING
-0208 ROW
-0209 BOF
-020B INDEX_B3+
-0218 NAME
-0221 ARRAY
-0223 EXTERNNAME_B3-4
-0225 DEFAULTROWHEIGHT
-0231 FONT_B3B4
-0236 TABLEOP
-023E WINDOW2
-0243 XF_B3
-027E RK
-0293 STYLE
-0406 FORMULA_B4
-0409 BOF
-041E FORMAT
-0443 XF_B4
-04BC SHRFMLA
-0800 QUICKTIP
-0809 BOF
-0862 SHEETLAYOUT
-0867 SHEETPROTECTION
-0868 RANGEPROTECTION
-"""
+/*
+*/
 
-biff_rec_name_dict = {}
-for _buff in _brecstrg.splitlines():
-    _numh, _name = _buff.split()
-    biff_rec_name_dict[int(_numh, 16)] = _name
-del _buff, _name, _brecstrg
+static
+std::map<int, std::string>
+biff_rec_name_dict = {
+    {0x0000, "DIMENSIONS_B2"},
+    {0x0001, "BLANK_B2"},
+    {0x0002, "INTEGER_B2_ONLY"},
+    {0x0003, "NUMBER_B2"},
+    {0x0004, "LABEL_B2"},
+    {0x0005, "BOOLERR_B2"},
+    {0x0006, "FORMULA"},
+    {0x0007, "STRING_B2"},
+    {0x0008, "ROW_B2"},
+    {0x0009, "BOF_B2"},
+    {0x000A, "EOF"},
+    {0x000B, "INDEX_B2_ONLY"},
+    {0x000C, "CALCCOUNT"},
+    {0x000D, "CALCMODE"},
+    {0x000E, "PRECISION"},
+    {0x000F, "REFMODE"},
+    {0x0010, "DELTA"},
+    {0x0011, "ITERATION"},
+    {0x0012, "PROTECT"},
+    {0x0013, "PASSWORD"},
+    {0x0014, "HEADER"},
+    {0x0015, "FOOTER"},
+    {0x0016, "EXTERNCOUNT"},
+    {0x0017, "EXTERNSHEET"},
+    {0x0018, "NAME_B2,5+"},
+    {0x0019, "WINDOWPROTECT"},
+    {0x001A, "VERTICALPAGEBREAKS"},
+    {0x001B, "HORIZONTALPAGEBREAKS"},
+    {0x001C, "NOTE"},
+    {0x001D, "SELECTION"},
+    {0x001E, "FORMAT_B2-3"},
+    {0x001F, "BUILTINFMTCOUNT_B2"},
+    {0x0020, "COLUMNDEFAULT_B2_ONLY"},
+    {0x0021, "ARRAY_B2_ONLY"},
+    {0x0022, "DATEMODE"},
+    {0x0023, "EXTERNNAME"},
+    {0x0024, "COLWIDTH_B2_ONLY"},
+    {0x0025, "DEFAULTROWHEIGHT_B2_ONLY"},
+    {0x0026, "LEFTMARGIN"},
+    {0x0027, "RIGHTMARGIN"},
+    {0x0028, "TOPMARGIN"},
+    {0x0029, "BOTTOMMARGIN"},
+    {0x002A, "PRINTHEADERS"},
+    {0x002B, "PRINTGRIDLINES"},
+    {0x002F, "FILEPASS"},
+    {0x0031, "FONT"},
+    {0x0032, "FONT2_B2_ONLY"},
+    {0x0036, "TABLEOP_B2"},
+    {0x0037, "TABLEOP2_B2"},
+    {0x003C, "CONTINUE"},
+    {0x003D, "WINDOW1"},
+    {0x003E, "WINDOW2_B2"},
+    {0x0040, "BACKUP"},
+    {0x0041, "PANE"},
+    {0x0042, "CODEPAGE"},
+    {0x0043, "XF_B2"},
+    {0x0044, "IXFE_B2_ONLY"},
+    {0x0045, "EFONT_B2_ONLY"},
+    {0x004D, "PLS"},
+    {0x0051, "DCONREF"},
+    {0x0055, "DEFCOLWIDTH"},
+    {0x0056, "BUILTINFMTCOUNT_B3-4"},
+    {0x0059, "XCT"},
+    {0x005A, "CRN"},
+    {0x005B, "FILESHARING"},
+    {0x005C, "WRITEACCESS"},
+    {0x005D, "OBJECT"},
+    {0x005E, "UNCALCED"},
+    {0x005F, "SAVERECALC"},
+    {0x0063, "OBJECTPROTECT"},
+    {0x007D, "COLINFO"},
+    {0x007E, "RK2_mythical_?"},
+    {0x0080, "GUTS"},
+    {0x0081, "WSBOOL"},
+    {0x0082, "GRIDSET"},
+    {0x0083, "HCENTER"},
+    {0x0084, "VCENTER"},
+    {0x0085, "BOUNDSHEET"},
+    {0x0086, "WRITEPROT"},
+    {0x008C, "COUNTRY"},
+    {0x008D, "HIDEOBJ"},
+    {0x008E, "SHEETSOFFSET"},
+    {0x008F, "SHEETHDR"},
+    {0x0090, "SORT"},
+    {0x0092, "PALETTE"},
+    {0x0099, "STANDARDWIDTH"},
+    {0x009B, "FILTERMODE"},
+    {0x009C, "FNGROUPCOUNT"},
+    {0x009D, "AUTOFILTERINFO"},
+    {0x009E, "AUTOFILTER"},
+    {0x00A0, "SCL"},
+    {0x00A1, "SETUP"},
+    {0x00AB, "GCW"},
+    {0x00BD, "MULRK"},
+    {0x00BE, "MULBLANK"},
+    {0x00C1, "MMS"},
+    {0x00D6, "RSTRING"},
+    {0x00D7, "DBCELL"},
+    {0x00DA, "BOOKBOOL"},
+    {0x00DD, "SCENPROTECT"},
+    {0x00E0, "XF"},
+    {0x00E1, "INTERFACEHDR"},
+    {0x00E2, "INTERFACEEND"},
+    {0x00E5, "MERGEDCELLS"},
+    {0x00E9, "BITMAP"},
+    {0x00EB, "MSO_DRAWING_GROUP"},
+    {0x00EC, "MSO_DRAWING"},
+    {0x00ED, "MSO_DRAWING_SELECTION"},
+    {0x00EF, "PHONETIC"},
+    {0x00FC, "SST"},
+    {0x00FD, "LABELSST"},
+    {0x00FF, "EXTSST"},
+    {0x013D, "TABID"},
+    {0x015F, "LABELRANGES"},
+    {0x0160, "USESELFS"},
+    {0x0161, "DSF"},
+    {0x01AE, "SUPBOOK"},
+    {0x01AF, "PROTECTIONREV4"},
+    {0x01B0, "CONDFMT"},
+    {0x01B1, "CF"},
+    {0x01B2, "DVAL"},
+    {0x01B6, "TXO"},
+    {0x01B7, "REFRESHALL"},
+    {0x01B8, "HLINK"},
+    {0x01BC, "PASSWORDREV4"},
+    {0x01BE, "DV"},
+    {0x01C0, "XL9FILE"},
+    {0x01C1, "RECALCID"},
+    {0x0200, "DIMENSIONS"},
+    {0x0201, "BLANK"},
+    {0x0203, "NUMBER"},
+    {0x0204, "LABEL"},
+    {0x0205, "BOOLERR"},
+    {0x0206, "FORMULA_B3"},
+    {0x0207, "STRING"},
+    {0x0208, "ROW"},
+    {0x0209, "BOF"},
+    {0x020B, "INDEX_B3+"},
+    {0x0218, "NAME"},
+    {0x0221, "ARRAY"},
+    {0x0223, "EXTERNNAME_B3-4"},
+    {0x0225, "DEFAULTROWHEIGHT"},
+    {0x0231, "FONT_B3B4"},
+    {0x0236, "TABLEOP"},
+    {0x023E, "WINDOW2"},
+    {0x0243, "XF_B3"},
+    {0x027E, "RK"},
+    {0x0293, "STYLE"},
+    {0x0406, "FORMULA_B4"},
+    {0x0409, "BOF"},
+    {0x041E, "FORMAT"},
+    {0x0443, "XF_B4"},
+    {0x04BC, "SHRFMLA"},
+    {0x0800, "QUICKTIP"},
+    {0x0809, "BOF"},
+    {0x0862, "SHEETLAYOUT"},
+    {0x0867, "SHEETPROTECTION"},
+    {0x0868, "RANGEPROTECTION"},
+};
 
+/*
 def hex_char_dump(strg, ofs, dlen, base=0, fout=sys.stdout, unnumbered=False):
     endpos = min(ofs + dlen, len(strg))
     pos = ofs
