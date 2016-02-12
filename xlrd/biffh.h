@@ -22,18 +22,17 @@
 #include <map>
 #include <exception>
 
-#include "./site/struct.h"
 #include "./utils.h"
 
 namespace xlrd {
 namespace biffh {
 
-namespace structs = xlrd::site::structs;
+namespace strutil = utils::str;
 
 static int DEBUG = 0;
 
 
-class XLRDError: public std::runtime_error
+class XLRDError : public std::runtime_error
 {
 };
 
@@ -233,7 +232,9 @@ _cell_opcode_dict;
 //for _cell_opcode in _cell_opcode_list:
 //    _cell_opcode_dict[_cell_opcode] = 1
 
-bool is_cell_opcode(int c) {
+inline
+bool
+is_cell_opcode(int c) {
     if (_cell_opcode_dict.empty()) {
         for (auto _cell_opcode: _cell_opcode_list) {
             _cell_opcode_dict[_cell_opcode] = 1;
@@ -272,12 +273,12 @@ unpack_string_update_pos(std::vector<uint8_t> data, int pos,
         if (lenlen == 1) {
             nchars = utils::as_uint8(data, pos);
         } else {
-            nchars = utils::as_uint16le(data, pos);
+            nchars = utils::as_uint16(data, pos);
         }
         pos += lenlen;
     }
     int newpos = pos + nchars;
-    return std::make_tuple(utils::unicode(utils::slice(data, pos, newpos), encoding), newpos);
+    return std::make_tuple(strutil::unicode(utils::slice(data, pos, newpos), encoding), newpos);
 }
 
 /*
@@ -335,7 +336,7 @@ unpack_unicode_update_pos(std::vector<uint8_t> data, int pos, int lenlen=2, int 
         if (lenlen == 1) {
             nchars = utils::as_uint8(data, pos);
         } else {
-            nchars = utils::as_uint16le(data, pos);
+            nchars = utils::as_uint16(data, pos);
         }
         pos += lenlen;
     }
@@ -350,26 +351,26 @@ unpack_unicode_update_pos(std::vector<uint8_t> data, int pos, int lenlen=2, int 
     int rt = 0;
     if (richtext) {
         // rt = unpack('<H', data[pos:pos+2])[0]
-        rt = utils::as_uint16le(data, pos);
+        rt = utils::as_uint16(data, pos);
         pos += 2;
     }
     int sz = 0;
     if (phonetic) {
         // sz = unpack('<i', data[pos:pos+4])[0]
-        sz = utils::as_int32le(data, pos);
+        sz = utils::as_int32(data, pos);
         pos += 4;
     }
     std::string strg;
     if (options & 0x01) {
         // Uncompressed UTF-16-LE
         // strg = unicode(data[pos:pos+2*nchars], 'utf_16_le')
-        strg = utils::utf16to8(utils::slice(data, pos, pos+2*nchars));
+        strg = strutil::utf16to8(utils::slice(data, pos, pos+2*nchars));
         pos += 2*nchars;
     }
     else {
         // Note: this is COMPRESSED (not ASCII!) encoding!!!
         // strg = unicode(data[pos:pos+nchars], "latin_1")
-        strg = utils::slice_as_str(data, pos, pos+nchars);
+        strg = std::string((char*)&utils::slice(data, pos, pos+nchars)[0]);
         pos += nchars;
     }
     if (richtext) {
@@ -393,15 +394,21 @@ unpack_cell_range_address_list_update_pos(
     // assert addr_size in (6, 8)
     // Used to assert size == 6 if not BIFF8, but pyWLWriter writes
     // BIFF8-only MERGEDCELLS records in a BIFF5 file!
-    int n = structs::unpack_leH(data, pos);
+    int n = utils::as_uint16(data, pos);
     pos += 2;
     if (n) {
         for (int i=0; i < n; i++) {
             int ra, rb, ca, cb;
             if (addr_size == 6) {
-                std::tie(ra, rb, ca, cb) = structs::unpack_leHHBB(data, pos);
-            } else {
-                std::tie(ra, rb, ca, cb) = structs::unpack_leHHHH(data, pos);
+                ra = utils::as_uint16(data, pos);
+                rb = utils::as_uint16(data, pos+2);
+                ca = utils::as_uint8(data, pos+4);
+                cb = utils::as_uint8(data, pos+5);
+            } else {  // addr_size == 8
+                ra = utils::as_uint16(data, pos);
+                rb = utils::as_uint16(data, pos+2);
+                ca = utils::as_uint16(data, pos+4);
+                cb = utils::as_uint16(data, pos+6);
             }
             output_list->push_back(std::make_tuple(ra, rb+1, ca, cb+1));
             pos += addr_size;

@@ -14,21 +14,20 @@
 
 #include <set>
 
-#include "./site/struct.h"
 #include "./biffh.h"  //  unpack_unicode_update_pos, unpack_string_update_pos, \
                     //  XLRDError, hex_char_dump, error_text_from_code, BaseObject
+
+#include "./utils.h"
 
 namespace xlrd {
 namespace formula {
 
-namespace structs = xlrd::site::structs;
+namespace strutil = utils::str;
 
 auto& unpack_unicode_update_pos = biffh::unpack_unicode_update_pos;
 auto& unpack_string_update_pos = biffh::unpack_string_update_pos;
 using XLRDError = biffh::XLRDError;
 auto& error_text_from_code = biffh::error_text_from_code;
-
-class Operand {};
 
 /*
 from .biffh import unpack_unicode_update_pos, unpack_string_update_pos, \
@@ -503,14 +502,14 @@ inline
 std::tuple<int, int, int, int>
 get_cell_addr(std::vector<uint8_t> data, int pos, int bv, int reldelta, int browx, int bcolx) {
     if (bv >= 80) {
-        int rowval, colval;
-        std::tie(rowval, colval) = structs::unpack_leHH(data, pos);
+        int rowval = utils::as_uint16(data, pos);
+        int colval = utils::as_uint16(data, pos+2);
         // print "    rv=%04xh cv=%04xh" % (rowval, colval)
         return adjust_cell_addr_biff8(rowval, colval, reldelta, browx, bcolx);
     }
     else {
-        int rowval, colval;
-        std::tie(rowval, colval) = structs::unpack_leHB(data, pos);
+        int rowval = utils::as_uint16(data, pos);
+        int colval = utils::as_uint8(data, pos+2);
         // print "    rv=%04xh cv=%04xh" % (rowval, colval)
         return adjust_cell_addr_biff_le7(
                     rowval, colval, reldelta, browx, bcolx);
@@ -658,36 +657,49 @@ class FormulaError(Exception):
 // </table>
 //<p></p>
 
-class Operand(object):
+*/
 
+class Operand
+{
+public:
     ////
     // None means that the actual value of the operand is a variable
     // (depends on cell data), not a constant.
-    value = None
+    utils::any value;
     ////
     // oUNK means that the kind of operand is not known unambiguously.
-    kind = oUNK
+    int kind = oUNK;
     ////
     // The reconstituted text of the original formula. Function names will be
     // in English irrespective of the original language, which doesn't seem
     // to be recorded anywhere. The separator is ",", not ";" or whatever else
     // might be more appropriate for the end-user's locale; patches welcome.
-    text = '?'
+    std::string text = "?";
+    int rank = 0;
 
-    def __init__(self, akind=None, avalue=None, arank=0, atext='?'):
-        if akind is not None:
-            self.kind = akind
-        if avalue is not None:
-            self.value = avalue
-        self.rank = arank
+    inline
+    Operand(int akind=-1, utils::any avalue=nullptr, int arank=0, std::string atext="?")
+    {
+        if (akind != -1) {
+            this->kind = akind;
+        }
+        this->value = avalue;
+        this->rank = arank;
         // rank is an internal gizmo (operator precedence);
         // it's used in reconstructing formula text.
-        self.text = atext
+        this->text = atext;
+    };
 
-    def __repr__(self):
-        kind_text = okind_dict.get(self.kind, "?Unknown kind?")
-        return "Operand(kind=%s, value=%r, text=%r)" \
-            % (kind_text, self.value, self.text)
+    inline
+    std::string
+    repr() {
+        auto kind_text = utils::getelse(okind_dict, this->kind, "?Unknown kind?");
+        return strutil::format(
+            "Operand(kind=%s, value=%s, text=%s)",
+            kind_text, this->value, this->text
+        );
+    };
+};
 
 ////
 // <p>Represents an absolute or relative 3-dimensional reference to a box
@@ -721,25 +733,42 @@ class Operand(object):
 // So far, only one possibility of a sheet-relative component in
 // a reference has been noticed: a 2D reference located in the "current sheet".
 // <br /> This will appear as coords = (0, 1, ...) and relflags = (1, 1, ...).
+class Ref3D
+{
+public:
+    int shtxlo;
+    int shtxhi;
+    int rowxlo;
+    int rowxhi;
+    int colxlo;
+    int colxhi;
+    std::tuple<int, int, int, int, int, int> coords;
+    std::tuple<int, int, int, int, int, int> relflags;
 
-class Ref3D(tuple):
+    inline
+    Ref3D(std::tuple<int, int, int, int, int, int, int, int, int, int, int, int>atuple)
+    {
+        this->coords = {std::get<0>(atuple), std::get<1>(atuple), std::get<2>(atuple),
+                        std::get<3>(atuple), std::get<4>(atuple), std::get<5>(atuple)};
+        this->relflags = {std::get<6>(atuple), std::get<7>(atuple), std::get<8>(atuple),
+                          std::get<9>(atuple), std::get<10>(atuple), std::get<11>(atuple)};
+        this->shtxlo = std::get<0>(atuple);
+        this->shtxhi = std::get<1>(atuple);
+        this->rowxlo = std::get<2>(atuple);
+        this->rowxhi = std::get<3>(atuple);
+        this->colxlo = std::get<4>(atuple);
+        this->colxhi = std::get<5>(atuple);
+    };
 
-    def __init__(self, atuple):
-        self.coords = atuple[0:6]
-        self.relflags = atuple[6:12]
-        if not self.relflags:
-            self.relflags = (0, 0, 0, 0, 0, 0)
-        (self.shtxlo, self.shtxhi,
-        self.rowxlo, self.rowxhi,
-        self.colxlo, self.colxhi) = self.coords
+    // def __repr__(self):
+    //     if not self.relflags or self.relflags == (0, 0, 0, 0, 0, 0):
+    //         return "Ref3D(coords=%r)" % (self.coords, )
+    //     else:
+    //         return "Ref3D(coords=%r, relflags=%r)" \
+    //             % (self.coords, self.relflags)
+};
 
-    def __repr__(self):
-        if not self.relflags or self.relflags == (0, 0, 0, 0, 0, 0):
-            return "Ref3D(coords=%r)" % (self.coords, )
-        else:
-            return "Ref3D(coords=%r, relflags=%r)" \
-                % (self.coords, self.relflags)
-
+/*
 tAdd = 0x03
 tSub = 0x04
 tMul = 0x05
@@ -2215,40 +2244,70 @@ def rangename3drel(book, ref3d, browx=None, bcolx=None, r1c1=0):
     if not shdesc:
         return rngdesc
     return "%s!%s" % (shdesc, rngdesc)
+*/
 
-def quotedsheetname(shnames, shx):
-    if shx >= 0:
-        shname = shnames[shx]
-    else:
-        shname = {
-            -1: "?internal; any sheet?",
-            -2: "internal; deleted sheet",
-            -3: "internal; macro sheet",
-            -4: "<<external>>",
-            }.get(shx, "?error %d?" % shx)
-    if "'" in shname:
-        return "'" + shname.replace("'", "''") + "'"
-    if " " in shname:
-        return "'" + shname + "'"
-    return shname
+static std::map<int, std::string>
+shname_dict_ = {
+    {-1, "?internal; any sheet?"},
+    {-2, "internal; deleted sheet"},
+    {-3, "internal; macro sheet"},
+    {-4, "<<external>>"},
+};
 
-def sheetrange(book, slo, shi):
-    shnames = book.sheet_names()
-    shdesc = quotedsheetname(shnames, slo)
-    if slo != shi-1:
-        shdesc += ":" + quotedsheetname(shnames, shi-1)
-    return shdesc
+inline
+std::string
+quotedsheetname(std::vector<std::string> shnames, int shx)
+{
+    std::string shname;
+    if (shx >= 0) {
+        shname = shnames[shx];
+    }
+    else {
+        shname = utils::getelse(shname_dict_, shx, strutil::format("?error %d?", shx));
+    }
+    if (shname.find("'") != std::string::npos) {
+        return strutil::format("'%s'", strutil::replace(shname, "'", "''"));
+    }
+    if (shname.find(" ") != std::string::npos) {
+        return strutil::format("'%s'", shname);
+    }
+    return shname;
+}
 
-def sheetrangerel(book, srange, srangerel):
-    slo, shi = srange
-    slorel, shirel = srangerel
-    if not slorel and not shirel:
-        return sheetrange(book, slo, shi)
-    assert (slo == 0 == shi-1) and slorel and shirel
-    return ""
+
+class FormulaSheetNamesDelegate
+{
+public:
+    std::vector<std::string> sheet_names();
+};
+
+inline
+std::string sheetrange(FormulaSheetNamesDelegate& book, int slo, int shi)
+{
+    auto shnames = book.sheet_names();
+    auto shdesc = quotedsheetname(shnames, slo);
+    if (slo != shi-1) {
+        shdesc += ":" + quotedsheetname(shnames, shi-1);
+    }
+    return shdesc;
+}
+
+inline
+std::string sheetrangerel(FormulaSheetNamesDelegate& book,
+                          std::tuple<int, int> srange,
+                          std::tuple<int, int> srangerel)
+{
+    int slo, shi, slorel, shirel;
+    std::tie(slo, shi) = srange;
+    std::tie(slorel, shirel) = srangerel;
+    if (!slorel && !shirel) {
+        return sheetrange(book, slo, shi);
+    }
+    // assert (slo == 0 == shi-1) and slorel and shirel
+    return "";
+}
 
 // ==============================================================
-*/
 
 }
 }
