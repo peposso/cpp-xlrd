@@ -44,58 +44,94 @@ class CompDocError: public std::runtime_error
 {
 };
 
-/*
-class DirNode(object):
 
-    def __init__(self, DID, dent, DEBUG=0, logfile=sys.stdout):
+class DirNode
+{
+public:
+    int DID;
+    int etype;
+    int colour;
+    int left_DID;
+    int right_DID;
+    int root_DID;
+    int first_SID;
+    int tot_size;
+    std::vector<int> children;
+    int parent;
+    std::vector<uint32_t> tsinfo;
+    std::string name;
+
+    DirNode(int DID, std::vector<uint8_t> dent, int DEBUG=0)
+    {
         // dent is the 128-byte directory entry
-        self.DID = DID
-        self.logfile = logfile
-        (cbufsize, self.etype, self.colour, self.left_DID, self.right_DID,
-        self.root_DID) = \
-            unpack('<HBBiii', dent[64:80])
-        (self.first_SID, self.tot_size) = \
-            unpack('<ii', dent[116:124])
-        if cbufsize == 0:
-            self.name = UNICODE_LITERAL('')
-        else:
-            self.name = unicode(dent[0:cbufsize-2], 'utf_16_le') // omit the trailing U+0000
-        self.children = [] // filled in later
-        self.parent = -1 // indicates orphan; fixed up later
-        self.tsinfo = unpack('<IIII', dent[100:116])
-        if DEBUG:
-            self.dump(DEBUG)
+        this->DID = DID;
+        //(cbufsize, this->etype, this->colour, this->left_DID, this->right_DID,
+        //this->root_DID) = 
+        //    unpack('<HBBiii', dent[64:80])
+        utils::unpack bin64(dent, 64, 80);
+        int cbufsize = bin64.as<uint16_t>();
+        this->etype = bin64.as<uint8_t>();
+        this->colour = bin64.as<uint8_t>();
+        this->left_DID = bin64.as<int32_t>();
+        this->right_DID = bin64.as<int32_t>();
+        this->root_DID = bin64.as<int32_t>();
+        //(this->first_SID, this->tot_size) = 
+        //    unpack('<ii', dent[116:124])
+        utils::unpack bin116(dent, 116, 124);
+        this->first_SID = bin116.as<int32_t>();
+        this->tot_size = bin116.as<int32_t>();
+        if (cbufsize == 0) {
+            this->name = "";
+        } else {
+            this->name = unicode(dent, 0, cbufsize-2, "utf_16_le");
+        }
+        // omit the trailing U+0000
+        this->children = {}; // filled in later
+        this->parent = -1; // indicates orphan; fixed up later
+        //this->tsinfo = unpack('<IIII', dent[100:116])
+        utils::unpack bin100(dent, 100, 116);
+        this->tsinfo = {bin100.as<uint32_t>(), bin100.as<uint32_t>(),
+                        bin100.as<uint32_t>(), bin100.as<uint32_t>()};
+        if (DEBUG) {
+            this->dump(DEBUG);
+        }
+    }
 
-    def dump(self, DEBUG=1):
-        fprintf(
-            self.logfile,
-            "DID=%d name=%r etype=%d DIDs(left=%d right=%d root=%d parent=%d kids=%r) first_SID=%d tot_size=%d\n",
-            self.DID, self.name, self.etype, self.left_DID,
-            self.right_DID, self.root_DID, self.parent, self.children, self.first_SID, self.tot_size
-            )
-        if DEBUG == 2:
+    inline
+    void dump(int DEBUG=1) {
+        utils::printf(
+            "DID=%d name=%s etype=%d DIDs(left=%d right=%d root=%d parent=%d kids=%s) first_SID=%d tot_size=%d\n",
+            this->DID, this->name, this->etype, this->left_DID,
+            this->right_DID, this->root_DID, this->parent, this->children, this->first_SID, this->tot_size
+            );
+        if (DEBUG == 2) {
             // cre_lo, cre_hi, mod_lo, mod_hi = tsinfo
-            print("timestamp info", self.tsinfo, file=self.logfile)
+            utils::printf("timestamp info %s", this->tsinfo);
+        }
+    }
+};
 
-def _build_family_tree(dirlist, parent_DID, child_DID):
-    if child_DID < 0: return
-    _build_family_tree(dirlist, parent_DID, dirlist[child_DID].left_DID)
-    dirlist[parent_DID].children.append(child_DID)
-    dirlist[child_DID].parent = parent_DID
-    _build_family_tree(dirlist, parent_DID, dirlist[child_DID].right_DID)
-    if dirlist[child_DID].etype == 1: // storage
-        _build_family_tree(dirlist, child_DID, dirlist[child_DID].root_DID)
+inline
+void _build_family_tree(std::vector<DirNode>& dirlist, int parent_DID, int child_DID) {
+    if (child_DID < 0) return;
+    _build_family_tree(dirlist, parent_DID, dirlist[child_DID].left_DID);
+    dirlist[parent_DID].children.push_back(child_DID);
+    dirlist[child_DID].parent = parent_DID;
+    _build_family_tree(dirlist, parent_DID, dirlist[child_DID].right_DID);
+    if (dirlist[child_DID].etype == 1) { // storage
+        _build_family_tree(dirlist, child_DID, dirlist[child_DID].root_DID);
+    }
+}
 
 ////
 // Compound document handler.
 // @param mem The raw contents of the file, as a string, or as an mmap.mmap() object. The
 // only operation it needs to support is slicing.
 
-class CompDoc(object):
-
-    def __init__(self, mem, logfile=sys.stdout, DEBUG=0):
-        self.logfile = logfile
-        self.DEBUG = DEBUG
+class CompDoc{
+public:
+    CompDoc(const std::vector<uint8_t>& mem) {
+/*        
         if mem[0:8] != SIGNATURE:
             raise CompDocError('Not an OLE2 compound document')
         if mem[28:30] != b'\xFE\xFF':
@@ -103,7 +139,7 @@ class CompDoc(object):
         revision, version = unpack('<HH', mem[24:28])
         if DEBUG:
             print("\nCompDoc format: version=0x%04x revision=0x%04x" % (version, revision), file=logfile)
-        self.mem = mem
+        this->mem = mem
         ssz, sssz = unpack('<HH', mem[30:34])
         if ssz > 20: // allows for 2**20 bytes i.e. 1MB
             print("WARNING: sector size (2**%d) is preposterous; assuming 512 and continuing ..." \
@@ -113,12 +149,12 @@ class CompDoc(object):
             print("WARNING: short stream sector size (2**%d) is preposterous; assuming 64 and continuing ..." \
                 % sssz, file=logfile)
             sssz = 6
-        self.sec_size = sec_size = 1 << ssz
-        self.short_sec_size = 1 << sssz
-        if self.sec_size != 512 or self.short_sec_size != 64:
-            print("@@@@ sec_size=%d short_sec_size=%d" % (self.sec_size, self.short_sec_size), file=logfile)
+        this->sec_size = sec_size = 1 << ssz
+        this->short_sec_size = 1 << sssz
+        if this->sec_size != 512 or this->short_sec_size != 64:
+            print("@@@@ sec_size=%d short_sec_size=%d" % (this->sec_size, this->short_sec_size), file=logfile)
         (
-            SAT_tot_secs, self.dir_first_sec_sid, _unused, self.min_size_std_stream,
+            SAT_tot_secs, this->dir_first_sec_sid, _unused, this->min_size_std_stream,
             SSAT_first_sec_sid, SSAT_tot_secs,
             MSATX_first_sec_sid, MSATX_tot_secs,
         // ) = unpack('<ii4xiiiii', mem[44:76])
@@ -130,15 +166,15 @@ class CompDoc(object):
             mem_data_secs += 1
             print("WARNING *** file size (%d) not 512 + multiple of sector size (%d)" \
                 % (len(mem), sec_size), file=logfile)
-        self.mem_data_secs = mem_data_secs // use for checking later
-        self.mem_data_len = mem_data_len
-        seen = self.seen = array.array('B', [0]) * mem_data_secs
+        this->mem_data_secs = mem_data_secs // use for checking later
+        this->mem_data_len = mem_data_len
+        seen = this->seen = array.array('B', [0]) * mem_data_secs
 
         if DEBUG:
-            print('sec sizes', ssz, sssz, sec_size, self.short_sec_size, file=logfile)
+            print('sec sizes', ssz, sssz, sec_size, this->short_sec_size, file=logfile)
             print("mem data: %d bytes == %d sectors" % (mem_data_len, mem_data_secs), file=logfile)
             print("SAT_tot_secs=%d, dir_first_sec_sid=%d, min_size_std_stream=%d" \
-                % (SAT_tot_secs, self.dir_first_sec_sid, self.min_size_std_stream,), file=logfile)
+                % (SAT_tot_secs, this->dir_first_sec_sid, this->min_size_std_stream,), file=logfile)
             print("SSAT_first_sec_sid=%d, SSAT_tot_secs=%d" % (SSAT_first_sec_sid, SSAT_tot_secs,), file=logfile)
             print("MSATX_first_sec_sid=%d, MSATX_tot_secs=%d" % (MSATX_first_sec_sid, MSATX_tot_secs,), file=logfile)
         nent = sec_size // 4 // number of SID entries in a sector
@@ -189,7 +225,7 @@ class CompDoc(object):
         //
         // === build the SAT ===
         //
-        self.SAT = []
+        this->SAT = []
         actual_SAT_sectors = 0
         dump_again = 0
         for msidx in xrange(len(MSAT)):
@@ -216,35 +252,35 @@ class CompDoc(object):
             if DEBUG and actual_SAT_sectors > SAT_sectors_reqd:
                 print("[3]===>>>", mem_data_secs, nent, SAT_sectors_reqd, expected_MSATX_sectors, actual_MSATX_sectors, actual_SAT_sectors, msid, file=logfile)
             offset = 512 + sec_size * msid
-            self.SAT.extend(unpack(fmt, mem[offset:offset+sec_size]))
+            this->SAT.extend(unpack(fmt, mem[offset:offset+sec_size]))
 
         if DEBUG:
-            print("SAT: len =", len(self.SAT), file=logfile)
-            dump_list(self.SAT, 10, logfile)
+            print("SAT: len =", len(this->SAT), file=logfile)
+            dump_list(this->SAT, 10, logfile)
             // print >> logfile, "SAT ",
-            // for i, s in enumerate(self.SAT):
+            // for i, s in enumerate(this->SAT):
                 // print >> logfile, "entry: %4d offset: %6d, next entry: %4d" % (i, 512 + sec_size * i, s)
                 // print >> logfile, "%d:%d " % (i, s),
             print(file=logfile)
         if DEBUG and dump_again:
             print("MSAT: len =", len(MSAT), file=logfile)
             dump_list(MSAT, 10, logfile)
-            for satx in xrange(mem_data_secs, len(self.SAT)):
-                self.SAT[satx] = EVILSID
-            print("SAT: len =", len(self.SAT), file=logfile)
-            dump_list(self.SAT, 10, logfile)
+            for satx in xrange(mem_data_secs, len(this->SAT)):
+                this->SAT[satx] = EVILSID
+            print("SAT: len =", len(this->SAT), file=logfile)
+            dump_list(this->SAT, 10, logfile)
         //
         // === build the directory ===
         //
-        dbytes = self._get_stream(
-            self.mem, 512, self.SAT, self.sec_size, self.dir_first_sec_sid,
+        dbytes = this->_get_stream(
+            this->mem, 512, this->SAT, this->sec_size, this->dir_first_sec_sid,
             name="directory", seen_id=3)
         dirlist = []
         did = -1
         for pos in xrange(0, len(dbytes), 128):
             did += 1
             dirlist.append(DirNode(did, dbytes[pos:pos+128], 0, logfile))
-        self.dirlist = dirlist
+        this->dirlist = dirlist
         _build_family_tree(dirlist, 0, dirlist[0].root_DID) // and stand well back ...
         if DEBUG:
             for d in dirlist:
@@ -252,7 +288,7 @@ class CompDoc(object):
         //
         // === get the SSCS ===
         //
-        sscs_dir = self.dirlist[0]
+        sscs_dir = this->dirlist[0]
         assert sscs_dir.etype == 5 // root entry
         if sscs_dir.first_SID < 0 or sscs_dir.tot_size == 0:
             // Problem reported by Frank Hoffsuemmer: some software was
@@ -261,16 +297,16 @@ class CompDoc(object):
             // failure in _get_stream.
             // Solution: avoid calling _get_stream in any case when the
             // SCSS appears to be empty.
-            self.SSCS = ""
+            this->SSCS = ""
         else:
-            self.SSCS = self._get_stream(
-                self.mem, 512, self.SAT, sec_size, sscs_dir.first_SID,
+            this->SSCS = this->_get_stream(
+                this->mem, 512, this->SAT, sec_size, sscs_dir.first_SID,
                 sscs_dir.tot_size, name="SSCS", seen_id=4)
-        // if DEBUG: print >> logfile, "SSCS", repr(self.SSCS)
+        // if DEBUG: print >> logfile, "SSCS", repr(this->SSCS)
         //
         // === build the SSAT ===
         //
-        self.SSAT = []
+        this->SSAT = []
         if SSAT_tot_secs > 0 and sscs_dir.tot_size == 0:
             print("WARNING *** OLE2 inconsistency: SSCS size is 0 but SSAT size is non-zero", file=logfile)
         if sscs_dir.tot_size > 0:
@@ -283,28 +319,30 @@ class CompDoc(object):
                 nsecs -= 1
                 start_pos = 512 + sid * sec_size
                 news = list(unpack(fmt, mem[start_pos:start_pos+sec_size]))
-                self.SSAT.extend(news)
-                sid = self.SAT[sid]
+                this->SSAT.extend(news)
+                sid = this->SAT[sid]
             if DEBUG: print("SSAT last sid %d; remaining sectors %d" % (sid, nsecs), file=logfile)
             assert nsecs == 0 and sid == EOCSID
         if DEBUG:
             print("SSAT", file=logfile)
-            dump_list(self.SSAT, 10, logfile)
+            dump_list(this->SSAT, 10, logfile)
         if DEBUG:
             print("seen", file=logfile)
             dump_list(seen, 20, logfile)
-
-    def _get_stream(self, mem, base, sat, sec_size, start_sid, size=None, name='', seen_id=None):
-        // print >> self.logfile, "_get_stream", base, sec_size, start_sid, size
+*/
+    }
+/*
+    def _get_stream(this-> mem, base, sat, sec_size, start_sid, size=None, name='', seen_id=None):
+        // print >> this->logfile, "_get_stream", base, sec_size, start_sid, size
         sectors = []
         s = start_sid
         if size is None:
             // nothing to check against
             while s >= 0:
                 if seen_id is not None:
-                    if self.seen[s]:
-                        raise CompDocError("%s corruption: seen[%d] == %d" % (name, s, self.seen[s]))
-                    self.seen[s] = seen_id
+                    if this->seen[s]:
+                        raise CompDocError("%s corruption: seen[%d] == %d" % (name, s, this->seen[s]))
+                    this->seen[s] = seen_id
                 start_pos = base + s * sec_size
                 sectors.append(mem[start_pos:start_pos+sec_size])
                 try:
@@ -319,9 +357,9 @@ class CompDoc(object):
             todo = size
             while s >= 0:
                 if seen_id is not None:
-                    if self.seen[s]:
-                        raise CompDocError("%s corruption: seen[%d] == %d" % (name, s, self.seen[s]))
-                    self.seen[s] = seen_id
+                    if this->seen[s]:
+                        raise CompDocError("%s corruption: seen[%d] == %d" % (name, s, this->seen[s]))
+                    this->seen[s] = seen_id
                 start_pos = base + s * sec_size
                 grab = sec_size
                 if grab > todo:
@@ -337,17 +375,17 @@ class CompDoc(object):
                         )
             assert s == EOCSID
             if todo != 0:
-                fprintf(self.logfile,
+                fprintf(this->logfile,
                     "WARNING *** OLE2 stream %r: expected size %d, actual size %d\n",
                     name, size, size - todo)
 
         return b''.join(sectors)
 
-    def _dir_search(self, path, storage_DID=0):
+    def _dir_search(this-> path, storage_DID=0):
         // Return matching DirNode instance, or None
         head = path[0]
         tail = path[1:]
-        dl = self.dirlist
+        dl = this->dirlist
         for child in dl[storage_DID].children:
             if dl[child].name.lower() == head.lower():
                 et = dl[child].etype
@@ -356,7 +394,7 @@ class CompDoc(object):
                 if et == 1:
                     if not tail:
                         raise CompDocError("Requested component is a 'storage'")
-                    return self._dir_search(tail, child)
+                    return this->_dir_search(tail, child)
                 dl[child].dump(1)
                 raise CompDocError("Requested stream is not a 'user stream'")
         return None
@@ -366,17 +404,17 @@ class CompDoc(object):
     // return None.
     // @param qname Name of the desired stream e.g. u'Workbook'. Should be in Unicode or convertible thereto.
 
-    def get_named_stream(self, qname):
-        d = self._dir_search(qname.split("/"))
+    def get_named_stream(this-> qname):
+        d = this->_dir_search(qname.split("/"))
         if d is None:
             return None
-        if d.tot_size >= self.min_size_std_stream:
-            return self._get_stream(
-                self.mem, 512, self.SAT, self.sec_size, d.first_SID,
+        if d.tot_size >= this->min_size_std_stream:
+            return this->_get_stream(
+                this->mem, 512, this->SAT, this->sec_size, d.first_SID,
                 d.tot_size, name=qname, seen_id=d.DID+6)
         else:
-            return self._get_stream(
-                self.SSCS, 0, self.SSAT, self.short_sec_size, d.first_SID,
+            return this->_get_stream(
+                this->SSCS, 0, this->SSAT, this->short_sec_size, d.first_SID,
                 d.tot_size, name=qname + " (from SSCS)", seen_id=None)
 
     ////
@@ -388,32 +426,32 @@ class CompDoc(object):
     // Otherwise a new string is built from the fragments and (new_string, 0, length_of_stream) is returned.
     // @param qname Name of the desired stream e.g. u'Workbook'. Should be in Unicode or convertible thereto.
 
-    def locate_named_stream(self, qname):
-        d = self._dir_search(qname.split("/"))
+    def locate_named_stream(this-> qname):
+        d = this->_dir_search(qname.split("/"))
         if d is None:
             return (None, 0, 0)
-        if d.tot_size > self.mem_data_len:
+        if d.tot_size > this->mem_data_len:
             raise CompDocError("%r stream length (%d bytes) > file data size (%d bytes)"
-                % (qname, d.tot_size, self.mem_data_len))
-        if d.tot_size >= self.min_size_std_stream:
-            result = self._locate_stream(
-                self.mem, 512, self.SAT, self.sec_size, d.first_SID,
+                % (qname, d.tot_size, this->mem_data_len))
+        if d.tot_size >= this->min_size_std_stream:
+            result = this->_locate_stream(
+                this->mem, 512, this->SAT, this->sec_size, d.first_SID,
                 d.tot_size, qname, d.DID+6)
-            if self.DEBUG:
-                print("\nseen", file=self.logfile)
-                dump_list(self.seen, 20, self.logfile)
+            if this->DEBUG:
+                print("\nseen", file=this->logfile)
+                dump_list(this->seen, 20, this->logfile)
             return result
         else:
             return (
-                self._get_stream(
-                    self.SSCS, 0, self.SSAT, self.short_sec_size, d.first_SID,
+                this->_get_stream(
+                    this->SSCS, 0, this->SSAT, this->short_sec_size, d.first_SID,
                     d.tot_size, qname + " (from SSCS)", None),
                 0,
                 d.tot_size
                 )
 
-    def _locate_stream(self, mem, base, sat, sec_size, start_sid, expected_stream_size, qname, seen_id):
-        // print >> self.logfile, "_locate_stream", base, sec_size, start_sid, expected_stream_size
+    def _locate_stream(this-> mem, base, sat, sec_size, start_sid, expected_stream_size, qname, seen_id):
+        // print >> this->logfile, "_locate_stream", base, sec_size, start_sid, expected_stream_size
         s = start_sid
         if s < 0:
             raise CompDocError("_locate_stream: start_sid (%d) is -ve" % start_sid)
@@ -424,10 +462,10 @@ class CompDoc(object):
         tot_found = 0
         found_limit = (expected_stream_size + sec_size - 1) // sec_size
         while s >= 0:
-            if self.seen[s]:
-                print("_locate_stream(%s): seen" % qname, file=self.logfile); dump_list(self.seen, 20, self.logfile)
-                raise CompDocError("%s corruption: seen[%d] == %d" % (qname, s, self.seen[s]))
-            self.seen[s] = seen_id
+            if this->seen[s]:
+                print("_locate_stream(%s): seen" % qname, file=this->logfile); dump_list(this->seen, 20, this->logfile)
+                raise CompDocError("%s corruption: seen[%d] == %d" % (qname, s, this->seen[s]))
+            this->seen[s] = seen_id
             tot_found += 1
             if tot_found > found_limit:
                 raise CompDocError(
@@ -448,15 +486,18 @@ class CompDoc(object):
             s = sat[s]
         assert s == EOCSID
         assert tot_found == found_limit
-        // print >> self.logfile, "_locate_stream(%s): seen" % qname; dump_list(self.seen, 20, self.logfile)
+        // print >> this->logfile, "_locate_stream(%s): seen" % qname; dump_list(this->seen, 20, this->logfile)
         if not slices:
             // The stream is contiguous ... just what we like!
             return (mem, start_pos, expected_stream_size)
         slices.append((start_pos, end_pos))
-        // print >> self.logfile, "+++>>> %d fragments" % len(slices)
+        // print >> this->logfile, "+++>>> %d fragments" % len(slices)
         return (b''.join([mem[start_pos:end_pos] for start_pos, end_pos in slices]), 0, expected_stream_size)
+*/
+};
 
 // ==========================================================================================
+/*
 def x_dump_line(alist, stride, f, dpos, equal=0):
     print("%5d%s" % (dpos, " ="[equal]), end=' ', file=f)
     for value in alist[dpos:dpos + stride]:

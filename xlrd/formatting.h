@@ -16,10 +16,10 @@
 #include <map>
 
 #include "./biffh.h"
-// unpack_unicode, unpack_string, \
-//    upkbits, upkbitsL, fprintf, \
-//    FUN, FDT, FNU, FGE, FTX, XL_CELL_NUMBER, XL_CELL_DATE, XL_CELL_TEXT, \
-//    XL_FORMAT, XL_FORMAT2, \
+// unpack_unicode, unpack_string,
+//    upkbits, upkbitsL, fprintf,
+//    FUN, FDT, FNU, FGE, FTX, XL_CELL_NUMBER, XL_CELL_DATE, XL_CELL_TEXT,
+//    XL_FORMAT, XL_FORMAT2,
 //    XLRDError
 #include "./utils.h"
 
@@ -354,16 +354,18 @@ def handle_font(book, data):
             header="--- handle_font: font[%d] ---" % f.font_index,
             footer="-------------------",
             )
-
+*/
 // === "Number formats" ===
 
 ////
 // "Number format" information from a FORMAT record.
 // <br /> -- New in version 0.6.1
-class Format(BaseObject, EqNeAttrs):
+class Format
+{
+public:
     ////
     // The key into Book.format_map
-    format_key = 0
+    int format_key = 0;
     ////
     // A classification that has been inferred from the format string.
     // Currently, this is used only to distinguish between numbers and dates.
@@ -373,16 +375,19 @@ class Format(BaseObject, EqNeAttrs):
     // <br />FNU = 2 // number
     // <br />FGE = 3 // general
     // <br />FTX = 4 // text
-    type = FUN
+    int type = FUN;
     ////
     // The format string
-    format_str = UNICODE_LITERAL('')
+    std::string format_str;
 
-    def __init__(self, format_key, ty, format_str):
-        self.format_key = format_key
-        self.type = ty
-        self.format_str = format_str
+    Format(int format_key, int ty, std::string format_str) {
+        this->format_key = format_key;
+        this->type = ty;
+        this->format_str = format_str;
+    }
+};
 
+/*
 std_format_strings = {
     // "std" == "standard for US English locale"
     // //////// TODO ... a lot of work to tailor these to the user's locale.
@@ -997,11 +1002,21 @@ def handle_xf(self, data):
             fprintf(self.logfile, msg,
                 xf.xf_index, xf.format_key, xf.format_key)
         xf.format_key = 0
+*/
 
-def xf_epilogue(self):
+class FormattingDelegate
+{
+public:
+    int _xf_epilogue_done;
+    std::vector<Format> xf_list;
+};
+
+void xf_epilogue(FormattingDelegate* self) {
     // self is a Book instance.
-    self._xf_epilogue_done = 1
-    num_xfs = len(self.xf_list)
+    self->_xf_epilogue_done = 1;
+    int num_xfs = self->xf_list.size();
+    num_xfs += 0;
+    /*
     blah = DEBUG or self.verbosity >= 3
     blah1 = DEBUG or self.verbosity >= 1
     if blah:
@@ -1070,7 +1085,10 @@ def xf_epilogue(self):
                     fprintf(self.logfile,
                         "NOTE !!! XF[%d] fontx=%d, parent[%d] fontx=%r\n",
                         xf.xf_index, xf.font_index, parent.xf_index, parent.font_index)
+    */
+}
 
+/*
 def initialise_book(book):
     initialise_colour_map(book)
     book._xf_epilogue_done = 0

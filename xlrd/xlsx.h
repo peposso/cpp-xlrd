@@ -1,18 +1,22 @@
 #pragma once
 
+
+////
+// Portions copyright (c) 2008-2012 Stephen John Machin, Lingfo Pty Ltd
+// This module is part of the xlrd package, which is released under a BSD-style licence.
+////
+
+// from __future__ import print_function, unicode_literals
+
+#include "./book.h"
+
+namespace xlrd {
+namespace xlsx {
+
+const int DEBUG = 0;
+
+
 /*
-##
-# Portions copyright (c) 2008-2012 Stephen John Machin, Lingfo Pty Ltd
-# This module is part of the xlrd package, which is released under a BSD-style licence.
-##
-
-from __future__ import print_function, unicode_literals
-
-DEBUG = 0
-
-import sys
-import re
-from .timemachine import *
 from .book import Book, Name
 from .biffh import error_text_from_code, XLRDError, XL_CELL_BLANK, XL_CELL_TEXT, XL_CELL_BOOLEAN, XL_CELL_ERROR
 from .formatting import is_date_format_string, Format, XF

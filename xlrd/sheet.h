@@ -2,7 +2,7 @@
 // -*- coding: cp1252 -*-
 
 ////
-// <p> Portions copyright © 2005-2013 Stephen John Machin, Lingfo Pty Ltd</p>
+// <p> Portions copyright ï¿½ 2005-2013 Stephen John Machin, Lingfo Pty Ltd</p>
 // <p>This module is part of the xlrd package, which is released under a BSD-style licence.</p>
 ////
 
@@ -37,10 +37,26 @@
 namespace xlrd {
 namespace sheet {
 
-static int DEBUG = 0;
-static int OBJ_MSO_DEBUG = 0;
+using u8vec = std::vector<uint8_t>;
 
-static std::vector<std::pair<std::string, int>>
+const auto& FUN = biffh::FUN;
+const auto& FDT = biffh::FDT;
+const auto& FNU = biffh::FNU;
+const auto& FGE = biffh::FGE;
+const auto& FTX = biffh::FTX;
+const auto& XL_CELL_EMPTY = biffh::XL_CELL_EMPTY;
+const auto& XL_CELL_TEXT = biffh::XL_CELL_TEXT;
+const auto& XL_CELL_NUMBER = biffh::XL_CELL_NUMBER;
+const auto& XL_CELL_DATE = biffh::XL_CELL_DATE;
+const auto& XL_CELL_BOOLEAN = biffh::XL_CELL_BOOLEAN;
+const auto& XL_CELL_ERROR = biffh::XL_CELL_ERROR;
+const auto& XL_CELL_BLANK = biffh::XL_CELL_BLANK;
+
+
+const int DEBUG = 0;
+const int OBJ_MSO_DEBUG = 0;
+
+const std::vector<std::pair<std::string, int>>
 _WINDOW2_options = {
     // Attribute names and initial values to use in case
     // a WINDOW2 record is not written.
@@ -148,7 +164,7 @@ public:
     //     rlo, rhi, clo, chi = crange
     //     for rx in xrange(rlo, rhi):
     //         for cx in xrange(clo, chi):
-    //             print "Column label at (rowx=%d, colx=%d) is %r" \
+    //             print "Column label at (rowx=%d, colx=%d) is %r"
     //                 (rx, cx, thesheet.cell_value(rx, cx))
     // </pre>
     int col_label_ranges;  // = []
@@ -609,23 +625,30 @@ public:
     // the given column by Excel, in units of 1/256th of the width of a
     // standard character (the digit zero in the first font).
 
-/*    
-    def computed_column_width(self, colx):
+    inline
+    void computed_column_width(int colx);
 
-    def handle_hlink(self, data):
-                
-    def handle_quicktip(self, data):
+    inline
+    void handle_hlink(std::vector<uint8_t> data);
 
-    def handle_msodrawingetc(self, recid, data_len, data):
+    inline
+    void handle_quicktip(std::vector<uint8_t> data);
 
-    def handle_obj(self, data):
+    inline
+    void handle_msodrawingetc(int recid, int data_len,
+                              std::vector<uint8_t> data);
 
-    def handle_note(self, data, txos):
+    inline
+    void handle_obj(std::vector<uint8_t> data);
 
-    def handle_txo(self, data):
+    inline
+    void handle_note(u8vec data, int txos);
 
-    def handle_feat11(self, data):
-*/
+    inline
+    void handle_txo(u8vec data);
+
+    inline
+    void handle_feat11(u8vec data);
 };
 
 class MSODrawing {};
@@ -634,108 +657,40 @@ class MSObj {};
 
 class MSTxo {};
 
-
-////
-// <p>Contains the data for one cell.</p>
-//
-// <p>WARNING: You don't call this class yourself. You access Cell objects
-// via methods of the {@link //Sheet} object(s) that you found in the {@link //Book} object that
-// was returned when you called xlrd.open_workbook("myfile.xls").</p>
-// <p> Cell objects have three attributes: <i>ctype</i> is an int, <i>value</i>
-// (which depends on <i>ctype</i>) and <i>xf_index</i>.
-// If "formatting_info" is not enabled when the workbook is opened, xf_index will be None.
-// The following table describes the types of cells and how their values
-// are represented in Python.</p>
-//
-// <table border="1" cellpadding="7">
-// <tr>
-// <th>Type symbol</th>
-// <th>Type number</th>
-// <th>Python value</th>
-// </tr>
-// <tr>
-// <td>XL_CELL_EMPTY</td>
-// <td align="center">0</td>
-// <td>empty string u''</td>
-// </tr>
-// <tr>
-// <td>XL_CELL_TEXT</td>
-// <td align="center">1</td>
-// <td>a Unicode string</td>
-// </tr>
-// <tr>
-// <td>XL_CELL_NUMBER</td>
-// <td align="center">2</td>
-// <td>float</td>
-// </tr>
-// <tr>
-// <td>XL_CELL_DATE</td>
-// <td align="center">3</td>
-// <td>float</td>
-// </tr>
-// <tr>
-// <td>XL_CELL_BOOLEAN</td>
-// <td align="center">4</td>
-// <td>int; 1 means TRUE, 0 means FALSE</td>
-// </tr>
-// <tr>
-// <td>XL_CELL_ERROR</td>
-// <td align="center">5</td>
-// <td>int representing internal Excel codes; for a text representation,
-// refer to the supplied dictionary error_text_from_code</td>
-// </tr>
-// <tr>
-// <td>XL_CELL_BLANK</td>
-// <td align="center">6</td>
-// <td>empty string u''. Note: this type will appear only when
-// open_workbook(..., formatting_info=True) is used.</td>
-// </tr>
-// </table>
-//<p></p>
-
-class Cell
-{
-public:
-    int ctype;
-    int value;
-    int xf_index;
-
-    Cell(int ctype, int value, int xf_index=0);
-
-}; // class Cell
-
-/*
 ////    
 // <p> Represents a user "comment" or "note".
 // Note objects are accessible through Sheet.{@link //Sheet.cell_note_map}.
 // <br />-- New in version 0.7.2  
 // </p>
-class Note(BaseObject):
+class Note
+{
+public:
     ////
     // Author of note
-    author = UNICODE_LITERAL('')
+    std::string author = "";
     ////
     // True if the containing column is hidden
-    col_hidden = 0 
+    int col_hidden = 0;
     ////
     // Column index
-    colx = 0
+    int colx = 0;
     ////
     // List of (offset_in_string, font_index) tuples.
     // Unlike Sheet.{@link //Sheet.rich_text_runlist_map}, the first offset should always be 0.
-    rich_text_runlist = None
+    std::vector<std::tuple<int, int>> rich_text_runlist;
     ////
     // True if the containing row is hidden
-    row_hidden = 0
+    int row_hidden = 0;
     ////
     // Row index
-    rowx = 0
+    int rowx = 0;
     ////
     // True if note is always shown
-    show = 0
+    int show = 0;
     ////
     // Text of the note
-    text = UNICODE_LITERAL('')
+    std::string text;
+};
 
 ////
 // <p>Contains the attributes of a hyperlink.
@@ -743,85 +698,99 @@ class Note(BaseObject):
 // and Sheet.{@link //Sheet.hyperlink_map}.
 // <br />-- New in version 0.7.2
 // </p>   
-class Hyperlink(BaseObject):
+class Hyperlink
+{
+public:
     ////
     // Index of first row
-    frowx = None
+    int frowx = -1;
     ////
     // Index of last row
-    lrowx = None
+    int lrowx = -1;
     ////
     // Index of first column
-    fcolx = None
+    int fcolx = -1;
     ////
     // Index of last column
-    lcolx = None
+    int lcolx = -1;
     ////
     // Type of hyperlink. Unicode string, one of 'url', 'unc',
     // 'local file', 'workbook', 'unknown'
-    type = None
+    std::string type;
     ////
     // The URL or file-path, depending in the type. Unicode string, except 
     // in the rare case of a local but non-existent file with non-ASCII
     // characters in the name, in which case only the "8.3" filename is available,
     // as a bytes (3.x) or str (2.x) string, <i>with unknown encoding.</i>
-    url_or_path = None
+    std::string url_or_path;
     ////
     // Description ... this is displayed in the cell,
     // and should be identical to the cell value. Unicode string, or None. It seems
     // impossible NOT to have a description created by the Excel UI.
-    desc = None
+    std::string desc;
     ////
     // Target frame. Unicode string. Note: I have not seen a case of this.
     // It seems impossible to create one in the Excel UI.
-    target = None
+    std::string target;
     ////
     // "Textmark": the piece after the "//" in 
     // "http://docs.python.org/library//struct_module", or the Sheet1!A1:Z99
     // part when type is "workbook".
-    textmark = None
+    std::string textmark;
     ////
     // The text of the "quick tip" displayed when the cursor
     // hovers over the hyperlink.
-    quicktip = None
+    std::string quicktip;
+};
 
 // === helpers ===
 
-def unpack_RK(rk_str):
-    flags = BYTES_ORD(rk_str[0])
-    if flags & 2:
+double unpack_RK(u8vec rk_str) {
+    uint8_t flags = rk_str[0];
+    if (flags & 2) {
         // There's a SIGNED 30-bit integer in there!
-        i,  = unpack('<i', rk_str)
-        i >>= 2 // div by 4 to drop the 2 flag bits
-        if flags & 1:
-            return i / 100.0
-        return float(i)
-    else:
+        int i  = utils::as_int32(rk_str);
+        i >>= 2; // div by 4 to drop the 2 flag bits
+        if (flags & 1) {
+            return i / 100.0;
+        }
+        return double(i);
+    }
+    else {
         // It's the most significant 30 bits of an IEEE 754 64-bit FP number
-        d, = unpack('<d', b'\0\0\0\0' + BYTES_LITERAL(chr(flags & 252)) + rk_str[1:4])
-        if flags & 1:
-            return d / 100.0
-        return d
+        u8vec buf = {0, 0, 0, 0};
+        buf.push_back(flags & 252);
+        buf.push_back(rk_str[1]);
+        buf.push_back(rk_str[2]);
+        buf.push_back(rk_str[3]);
+        double d = utils::as_double(buf);
+        if (flags & 1) {
+            return d / 100.0;
+        }
+        return d;
+    }
+}
 
 ////////// =============== Cell ======================================== //////////
-
+const std::map<int, int>
 cellty_from_fmtty = {
-    FNU: XL_CELL_NUMBER,
-    FUN: XL_CELL_NUMBER,
-    FGE: XL_CELL_NUMBER,
-    FDT: XL_CELL_DATE,
-    FTX: XL_CELL_NUMBER, // Yes, a number can be formatted as text.
-    }
+    {FNU, XL_CELL_NUMBER},
+    {FUN, XL_CELL_NUMBER},
+    {FGE, XL_CELL_NUMBER},
+    {FDT, XL_CELL_DATE},
+    {FTX, XL_CELL_NUMBER}, // Yes, a number can be formatted as text.
+};
 
+const std::map<int, const std::string>
 ctype_text = {
-    XL_CELL_EMPTY: 'empty',
-    XL_CELL_TEXT: 'text',
-    XL_CELL_NUMBER: 'number',
-    XL_CELL_DATE: 'xldate',
-    XL_CELL_BOOLEAN: 'bool',
-    XL_CELL_ERROR: 'error',
-    XL_CELL_BLANK: 'blank',
-    }
+    {XL_CELL_EMPTY, "empty"},
+    {XL_CELL_TEXT, "text"},
+    {XL_CELL_NUMBER, "number"},
+    {XL_CELL_DATE, "xldate"},
+    {XL_CELL_BOOLEAN, "bool"},
+    {XL_CELL_ERROR, "error"},
+    {XL_CELL_BLANK, "blank"},
+};
 
 ////
 // <p>Contains the data for one cell.</p>
@@ -881,22 +850,28 @@ ctype_text = {
 // </table>
 //<p></p>
 
-class Cell(BaseObject):
+class Cell 
+{
+public:
+    int ctype;
+    utils::any value;
+    int xf_index;
 
-    __slots__ = ['ctype', 'value', 'xf_index']
+    inline
+    Cell(int ctype, utils::any value, int xf_index=-1) {
+        this->ctype = ctype;
+        this->value = value;
+        this->xf_index = xf_index;
+    }
 
-    def __init__(self, ctype, value, xf_index=None):
-        self.ctype = ctype
-        self.value = value
-        self.xf_index = xf_index
+    // def __repr__(self):
+    //     if self.xf_index is None:
+    //         return "%s:%r" % (ctype_text[self.ctype], self.value)
+    //     else:
+    //         return "%s:%r (XF:%r)" % (ctype_text[self.ctype], self.value, self.xf_index)
+};
 
-    def __repr__(self):
-        if self.xf_index is None:
-            return "%s:%r" % (ctype_text[self.ctype], self.value)
-        else:
-            return "%s:%r (XF:%r)" % (ctype_text[self.ctype], self.value, self.xf_index)
-
-empty_cell = Cell(XL_CELL_EMPTY, UNICODE_LITERAL(''))
+Cell empty_cell = Cell(biffh::XL_CELL_EMPTY, "");
 
 ////////// =============== Colinfo and Rowinfo ============================== //////////
 
@@ -935,30 +910,33 @@ empty_cell = Cell(XL_CELL_EMPTY, UNICODE_LITERAL(''))
 // <br />-- New in version 0.6.1
 // </p>
 
-class Colinfo(BaseObject):
+class Colinfo
+{
+public:
     ////
     // Width of the column in 1/256 of the width of the zero character,
     // using default font (first FONT record in the file).
-    width = 0
+    int width = 0;
     ////
     // XF index to be used for formatting empty cells.
-    xf_index = -1
+    int xf_index = -1;
     ////
     // 1 = column is hidden
-    hidden = 0
+    int hidden = 0;
     ////
     // Value of a 1-bit flag whose purpose is unknown
     // but is often seen set to 1
-    bit1_flag = 0
+    int bit1_flag = 0;
     ////
     // Outline level of the column, in range(7).
     // (0 = no outline)
-    outline_level = 0
+    int outline_level = 0;
     ////
     // 1 = column is collapsed
-    collapsed = 0
+    int collapsed = 0;
+};
 
-_USE_SLOTS = 1
+const int _USE_SLOTS = 1;
 
 ////
 // <p>Height and default formatting information that applies to a row in a sheet.
@@ -994,63 +972,22 @@ _USE_SLOTS = 1
 // formatted with a medium or thick line style. Thin line styles are not
 // taken into account. </p>
 
-class Rowinfo(BaseObject):
+class Rowinfo
+{
+public:
+    int height;
+    int has_default_height;
+    int outline_level;
+    int outline_group_starts_ends;
+    int hidden;
+    int height_mismatch;
+    int has_default_xf_index;
+    int xf_index;
+    int additional_space_above;
+    int additional_space_below;
 
-    if _USE_SLOTS:
-        __slots__ = (
-            "height",
-            "has_default_height",
-            "outline_level",
-            "outline_group_starts_ends",
-            "hidden",
-            "height_mismatch",
-            "has_default_xf_index",
-            "xf_index",
-            "additional_space_above",
-            "additional_space_below",
-            )
+};
 
-    def __init__(self):
-        self.height = None
-        self.has_default_height = None
-        self.outline_level = None
-        self.outline_group_starts_ends = None
-        self.hidden = None
-        self.height_mismatch = None
-        self.has_default_xf_index = None
-        self.xf_index = None
-        self.additional_space_above = None
-        self.additional_space_below = None
-
-    def __getstate__(self):
-        return (
-            self.height,
-            self.has_default_height,
-            self.outline_level,
-            self.outline_group_starts_ends,
-            self.hidden,
-            self.height_mismatch,
-            self.has_default_xf_index,
-            self.xf_index,
-            self.additional_space_above,
-            self.additional_space_below,
-            )
-
-    def __setstate__(self, state):
-        (
-            self.height,
-            self.has_default_height,
-            self.outline_level,
-            self.outline_group_starts_ends,
-            self.hidden,
-            self.height_mismatch,
-            self.has_default_xf_index,
-            self.xf_index,
-            self.additional_space_above,
-            self.additional_space_below,
-            ) = state
-
-*/
 
 }
 }

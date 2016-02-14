@@ -29,11 +29,14 @@ namespace biffh {
 
 namespace strutil = utils::str;
 
-static int DEBUG = 0;
+const int DEBUG = 0;
 
 
 class XLRDError : public std::runtime_error
 {
+public:
+    XLRDError(const char* msg) : std::runtime_error(msg) {};
+    XLRDError(std::string msg) : std::runtime_error(msg.c_str()) {};
 };
 
 enum {
@@ -91,120 +94,120 @@ error_text_from_code = {
     {0x2A, "//N/A"}      // Argument or function not available
 };
 
-static int BIFF_FIRST_UNICODE = 80;
+const int BIFF_FIRST_UNICODE = 80;
 
-static int WBKBLOBAL = 0x5;
-static int XL_WORKBOOK_GLOBALS = WBKBLOBAL;
-static int XL_WORKBOOK_GLOBALS_4W = 0x100;
-static int WRKSHEET = 0x10;
-static int XL_WORKSHEET = WRKSHEET;
+const int WBKBLOBAL = 0x5;
+const int XL_WORKBOOK_GLOBALS = WBKBLOBAL;
+const int XL_WORKBOOK_GLOBALS_4W = 0x100;
+const int WRKSHEET = 0x10;
+const int XL_WORKSHEET = WRKSHEET;
 
-static int XL_BOUNDSHEET_WORKSHEET = 0x00;
-static int XL_BOUNDSHEET_CHART     = 0x02;
-static int XL_BOUNDSHEET_VB_MODULE = 0x06;
+const int XL_BOUNDSHEET_WORKSHEET = 0x00;
+const int XL_BOUNDSHEET_CHART     = 0x02;
+const int XL_BOUNDSHEET_VB_MODULE = 0x06;
 
 // XL_RK2 = 0x7e
-static int XL_ARRAY  = 0x0221;
-static int XL_ARRAY2 = 0x0021;
-static int XL_BLANK = 0x0201;
-static int XL_BLANK_B2 = 0x01;
-static int XL_BOF = 0x809;
-static int XL_BOOLERR = 0x205;
-static int XL_BOOLERR_B2 = 0x5;
-static int XL_BOUNDSHEET = 0x85;
-static int XL_BUILTINFMTCOUNT = 0x56;
-static int XL_CF = 0x01B1;
-static int XL_CODEPAGE = 0x42;
-static int XL_COLINFO = 0x7D;
-static int XL_COLUMNDEFAULT = 0x20; // BIFF2 only
-static int XL_COLWIDTH = 0x24; // BIFF2 only
-static int XL_CONDFMT = 0x01B0;
-static int XL_CONTINUE = 0x3c;
-static int XL_COUNTRY = 0x8C;
-static int XL_DATEMODE = 0x22;
-static int XL_DEFAULTROWHEIGHT = 0x0225;
-static int XL_DEFCOLWIDTH = 0x55;
-static int XL_DIMENSION = 0x200;
-static int XL_DIMENSION2 = 0x0;
-static int XL_EFONT = 0x45;
-static int XL_EOF = 0x0a;
-static int XL_EXTERNNAME = 0x23;
-static int XL_EXTERNSHEET = 0x17;
-static int XL_EXTSST = 0xff;
-static int XL_FEAT11 = 0x872;
-static int XL_FILEPASS = 0x2f;
-static int XL_FONT = 0x31;
-static int XL_FONT_B3B4 = 0x231;
-static int XL_FORMAT = 0x41e;
-static int XL_FORMAT2 = 0x1E; // BIFF2, BIFF3
-static int XL_FORMULA = 0x6;
-static int XL_FORMULA3 = 0x206;
-static int XL_FORMULA4 = 0x406;
-static int XL_GCW = 0xab;
-static int XL_HLINK = 0x01B8;
-static int XL_QUICKTIP = 0x0800;
-static int XL_HORIZONTALPAGEBREAKS = 0x1b;
-static int XL_INDEX = 0x20b;
-static int XL_INTEGER = 0x2; // BIFF2 only
-static int XL_IXFE = 0x44; // BIFF2 only
-static int XL_LABEL = 0x204;
-static int XL_LABEL_B2 = 0x04;
-static int XL_LABELRANGES = 0x15f;
-static int XL_LABELSST = 0xfd;
-static int XL_LEFTMARGIN = 0x26;
-static int XL_TOPMARGIN = 0x28;
-static int XL_RIGHTMARGIN = 0x27;
-static int XL_BOTTOMMARGIN = 0x29;
-static int XL_HEADER = 0x14;
-static int XL_FOOTER = 0x15;
-static int XL_HCENTER = 0x83;
-static int XL_VCENTER = 0x84;
-static int XL_MERGEDCELLS = 0xE5;
-static int XL_MSO_DRAWING = 0x00EC;
-static int XL_MSO_DRAWING_GROUP = 0x00EB;
-static int XL_MSO_DRAWING_SELECTION = 0x00ED;
-static int XL_MULRK = 0xbd;
-static int XL_MULBLANK = 0xbe;
-static int XL_NAME = 0x18;
-static int XL_NOTE = 0x1c;
-static int XL_NUMBER = 0x203;
-static int XL_NUMBER_B2 = 0x3;
-static int XL_OBJ = 0x5D;
-static int XL_PAGESETUP = 0xA1;
-static int XL_PALETTE = 0x92;
-static int XL_PANE = 0x41;
-static int XL_PRINTGRIDLINES = 0x2B;
-static int XL_PRINTHEADERS = 0x2A;
-static int XL_RK = 0x27e;
-static int XL_ROW = 0x208;
-static int XL_ROW_B2 = 0x08;
-static int XL_RSTRING = 0xd6;
-static int XL_SCL = 0x00A0;
-static int XL_SHEETHDR = 0x8F; // BIFF4W only
-static int XL_SHEETPR = 0x81;
-static int XL_SHEETSOFFSET = 0x8E; // BIFF4W only
-static int XL_SHRFMLA = 0x04bc;
-static int XL_SST = 0xfc;
-static int XL_STANDARDWIDTH = 0x99;
-static int XL_STRING = 0x207;
-static int XL_STRING_B2 = 0x7;
-static int XL_STYLE = 0x293;
-static int XL_SUPBOOK = 0x1AE; // aka EXTERNALBOOK in OOo docs
-static int XL_TABLEOP = 0x236;
-static int XL_TABLEOP2 = 0x37;
-static int XL_TABLEOP_B2 = 0x36;
-static int XL_TXO = 0x1b6;
-static int XL_UNCALCED = 0x5e;
-static int XL_UNKNOWN = 0xffff;
-static int XL_VERTICALPAGEBREAKS = 0x1a;
-static int XL_WINDOW2    = 0x023E;
-static int XL_WINDOW2_B2 = 0x003E;
-static int XL_WRITEACCESS = 0x5C;
-static int XL_WSBOOL = XL_SHEETPR;
-static int XL_XF = 0xe0;
-static int XL_XF2 = 0x0043; // BIFF2 version of XF record
-static int XL_XF3 = 0x0243; // BIFF3 version of XF record
-static int XL_XF4 = 0x0443; // BIFF4 version of XF record
+const int XL_ARRAY  = 0x0221;
+const int XL_ARRAY2 = 0x0021;
+const int XL_BLANK = 0x0201;
+const int XL_BLANK_B2 = 0x01;
+const int XL_BOF = 0x809;
+const int XL_BOOLERR = 0x205;
+const int XL_BOOLERR_B2 = 0x5;
+const int XL_BOUNDSHEET = 0x85;
+const int XL_BUILTINFMTCOUNT = 0x56;
+const int XL_CF = 0x01B1;
+const int XL_CODEPAGE = 0x42;
+const int XL_COLINFO = 0x7D;
+const int XL_COLUMNDEFAULT = 0x20; // BIFF2 only
+const int XL_COLWIDTH = 0x24; // BIFF2 only
+const int XL_CONDFMT = 0x01B0;
+const int XL_CONTINUE = 0x3c;
+const int XL_COUNTRY = 0x8C;
+const int XL_DATEMODE = 0x22;
+const int XL_DEFAULTROWHEIGHT = 0x0225;
+const int XL_DEFCOLWIDTH = 0x55;
+const int XL_DIMENSION = 0x200;
+const int XL_DIMENSION2 = 0x0;
+const int XL_EFONT = 0x45;
+const int XL_EOF = 0x0a;
+const int XL_EXTERNNAME = 0x23;
+const int XL_EXTERNSHEET = 0x17;
+const int XL_EXTSST = 0xff;
+const int XL_FEAT11 = 0x872;
+const int XL_FILEPASS = 0x2f;
+const int XL_FONT = 0x31;
+const int XL_FONT_B3B4 = 0x231;
+const int XL_FORMAT = 0x41e;
+const int XL_FORMAT2 = 0x1E; // BIFF2, BIFF3
+const int XL_FORMULA = 0x6;
+const int XL_FORMULA3 = 0x206;
+const int XL_FORMULA4 = 0x406;
+const int XL_GCW = 0xab;
+const int XL_HLINK = 0x01B8;
+const int XL_QUICKTIP = 0x0800;
+const int XL_HORIZONTALPAGEBREAKS = 0x1b;
+const int XL_INDEX = 0x20b;
+const int XL_INTEGER = 0x2; // BIFF2 only
+const int XL_IXFE = 0x44; // BIFF2 only
+const int XL_LABEL = 0x204;
+const int XL_LABEL_B2 = 0x04;
+const int XL_LABELRANGES = 0x15f;
+const int XL_LABELSST = 0xfd;
+const int XL_LEFTMARGIN = 0x26;
+const int XL_TOPMARGIN = 0x28;
+const int XL_RIGHTMARGIN = 0x27;
+const int XL_BOTTOMMARGIN = 0x29;
+const int XL_HEADER = 0x14;
+const int XL_FOOTER = 0x15;
+const int XL_HCENTER = 0x83;
+const int XL_VCENTER = 0x84;
+const int XL_MERGEDCELLS = 0xE5;
+const int XL_MSO_DRAWING = 0x00EC;
+const int XL_MSO_DRAWING_GROUP = 0x00EB;
+const int XL_MSO_DRAWING_SELECTION = 0x00ED;
+const int XL_MULRK = 0xbd;
+const int XL_MULBLANK = 0xbe;
+const int XL_NAME = 0x18;
+const int XL_NOTE = 0x1c;
+const int XL_NUMBER = 0x203;
+const int XL_NUMBER_B2 = 0x3;
+const int XL_OBJ = 0x5D;
+const int XL_PAGESETUP = 0xA1;
+const int XL_PALETTE = 0x92;
+const int XL_PANE = 0x41;
+const int XL_PRINTGRIDLINES = 0x2B;
+const int XL_PRINTHEADERS = 0x2A;
+const int XL_RK = 0x27e;
+const int XL_ROW = 0x208;
+const int XL_ROW_B2 = 0x08;
+const int XL_RSTRING = 0xd6;
+const int XL_SCL = 0x00A0;
+const int XL_SHEETHDR = 0x8F; // BIFF4W only
+const int XL_SHEETPR = 0x81;
+const int XL_SHEETSOFFSET = 0x8E; // BIFF4W only
+const int XL_SHRFMLA = 0x04bc;
+const int XL_SST = 0xfc;
+const int XL_STANDARDWIDTH = 0x99;
+const int XL_STRING = 0x207;
+const int XL_STRING_B2 = 0x7;
+const int XL_STYLE = 0x293;
+const int XL_SUPBOOK = 0x1AE; // aka EXTERNALBOOK in OOo docs
+const int XL_TABLEOP = 0x236;
+const int XL_TABLEOP2 = 0x37;
+const int XL_TABLEOP_B2 = 0x36;
+const int XL_TXO = 0x1b6;
+const int XL_UNCALCED = 0x5e;
+const int XL_UNKNOWN = 0xffff;
+const int XL_VERTICALPAGEBREAKS = 0x1a;
+const int XL_WINDOW2    = 0x023E;
+const int XL_WINDOW2_B2 = 0x003E;
+const int XL_WRITEACCESS = 0x5C;
+const int XL_WSBOOL = XL_SHEETPR;
+const int XL_XF = 0xe0;
+const int XL_XF2 = 0x0043; // BIFF2 version of XF record
+const int XL_XF3 = 0x0243; // BIFF3 version of XF record
+const int XL_XF4 = 0x0443; // BIFF4 version of XF record
 
 static std::map<int, int>
 boflen = {{0x0809, 8}, {0x0409, 6}, {0x0209, 6}, {0x0009, 4}};
@@ -340,7 +343,7 @@ unpack_unicode_update_pos(std::vector<uint8_t> data, int pos, int lenlen=2, int 
         }
         pos += lenlen;
     }
-    if (nchars == 0 && data.size() < pos) {
+    if (nchars == 0 && (int)data.size() < pos) {
         // Zero-length string with no options byte
         return std::make_tuple("", pos);
     }

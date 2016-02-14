@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <typeinfo>
 
 namespace utils {
@@ -45,6 +46,10 @@ public:
     any (const T& value) {
         m_obj = new _any<T>(value);
     }
+
+    any (const char* value) {
+        m_obj = new _any<std::string>(std::string(value));
+    }
     
     any (const any& obj) {
         if ( obj.m_obj ) {
@@ -81,7 +86,12 @@ public:
     const T& cast() const {
         return dynamic_cast< _any<T>& >(*m_obj).m_value;
     }
-    
+
+    template<class T>
+    bool is() {
+        return typeid(T) == m_obj->type();
+    }
+
     const std::type_info& type () const {
         if (m_obj == nullptr) {
             return typeid(nullptr);

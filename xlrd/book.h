@@ -36,10 +36,13 @@ empty_cell = sheet.empty_cell # for exposure to the world ...
 namespace xlrd {
 namespace book {
 
-using xlrd::biffh::XL_WORKBOOK_GLOBALS;
+namespace strutil = utils::str;
+template<class...A> std::string format(A...a) {return strutil::format(a...);};
+
 using Operand = formula::Operand;
 using Sheet = sheet::Sheet;
 using Cell = sheet::Cell;
+using XLRDError = biffh::XLRDError;
 
 int DEBUG = 0;
 
@@ -161,23 +164,23 @@ public:
     inline
     sheet::Cell cell()
     {
-        Operand* res = this->result;
-        if (res != nullptr) {
-            // result should be an instance of the Operand class
-            int kind = res->kind;
-            auto value = res->value;
-            // if (kind == formula::oREF && value.size() == 1) {
-            //     ref3d = value[0];
-            //     if ((0 <= ref3d.shtxlo) &&
-            //         (ref3d.shtxlo == ref3d.shtxhi - 1) &&
-            //         (ref3d.rowxlo == ref3d.rowxhi - 1) &&
-            //         (ref3d.colxlo == ref3d.colxhi - 1))
-            //     {
-            //         sh = self.book.sheet_by_index(ref3d.shtxlo);
-            //         return sh.cell(ref3d.rowxlo, ref3d.colxlo);
-            //     }
-            // }
-        }
+        // Operand* res = this->result;
+        // if (res != nullptr) {
+        //     // result should be an instance of the Operand class
+        //     int kind = res->kind;
+        //     auto value = res->value;
+        //     // if (kind == formula::oREF && value.size() == 1) {
+        //     //     ref3d = value[0];
+        //     //     if ((0 <= ref3d.shtxlo) &&
+        //     //         (ref3d.shtxlo == ref3d.shtxhi - 1) &&
+        //     //         (ref3d.rowxlo == ref3d.rowxhi - 1) &&
+        //     //         (ref3d.colxlo == ref3d.colxhi - 1))
+        //     //     {
+        //     //         sh = self.book.sheet_by_index(ref3d.shtxlo);
+        //     //         return sh.cell(ref3d.rowxlo, ref3d.colxlo);
+        //     //     }
+        //     // }
+        // }
         // self.dump(self.book.logfile,
         //     header="=== Dump of Name object ===",
         //     footer="======= End of dump =======",
@@ -200,30 +203,30 @@ public:
     std::tuple<sheet::Sheet, int, int, int, int>
     area2d()
     {
-        auto res = this->result;
-        if (res) {
-            // result should be an instance of the Operand class
-            int kind = res->kind;
-            // auto value = res->value;
-            // if (kind == formula::oREF && value.size() == 1) {  // only 1 reference
-            //     ref3d = value[0]
-            //     if (0 <= ref3d.shtxlo == ref3d.shtxhi - 1) {  // only 1 usable sheet
-            //         sh = self.book.sheet_by_index(ref3d.shtxlo)
-            //         if (!clipped) {
-            //             return std::make_tuple(
-            //                 sh, ref3d.rowxlo, ref3d.rowxhi, ref3d.colxlo, ref3d.colxhi
-            //             );
-            //         }
-            //         int rowxlo = min(ref3d.rowxlo, sh.nrows);
-            //         int rowxhi = max(rowxlo, min(ref3d.rowxhi, sh.nrows));
-            //         int colxlo = min(ref3d.colxlo, sh.ncols);
-            //         int colxhi = max(colxlo, min(ref3d.colxhi, sh.ncols));
-            //         assert 0 <= rowxlo <= rowxhi <= sh.nrows;
-            //         assert 0 <= colxlo <= colxhi <= sh.ncols;
-            //         return sh, rowxlo, rowxhi, colxlo, colxhi;
-            //     }
-            // }
-        }
+        // auto res = this->result;
+        // if (res) {
+        //     // result should be an instance of the Operand class
+        //     int kind = res->kind;
+        //     // auto value = res->value;
+        //     // if (kind == formula::oREF && value.size() == 1) {  // only 1 reference
+        //     //     ref3d = value[0]
+        //     //     if (0 <= ref3d.shtxlo == ref3d.shtxhi - 1) {  // only 1 usable sheet
+        //     //         sh = self.book.sheet_by_index(ref3d.shtxlo)
+        //     //         if (!clipped) {
+        //     //             return std::make_tuple(
+        //     //                 sh, ref3d.rowxlo, ref3d.rowxhi, ref3d.colxlo, ref3d.colxhi
+        //     //             );
+        //     //         }
+        //     //         int rowxlo = min(ref3d.rowxlo, sh.nrows);
+        //     //         int rowxhi = max(rowxlo, min(ref3d.rowxhi, sh.nrows));
+        //     //         int colxlo = min(ref3d.colxlo, sh.ncols);
+        //     //         int colxhi = max(colxlo, min(ref3d.colxhi, sh.ncols));
+        //     //         assert 0 <= rowxlo <= rowxhi <= sh.nrows;
+        //     //         assert 0 <= colxlo <= colxhi <= sh.ncols;
+        //     //         return sh, rowxlo, rowxhi, colxlo, colxhi;
+        //     //     }
+        //     // }
+        // }
         // throw XLRDError("Not a constant absolute reference to a single area in a single sheet");
         throw std::runtime_error("Not a constant absolute reference to a single area in a single sheet");
     };
@@ -231,7 +234,10 @@ public:
 
 };
 
-class Book : public formula::FormulaSheetNamesDelegate, public sheet::SheetOwnerInterface
+class Book
+: public formula::FormulaDelegate
+, public sheet::SheetOwnerInterface
+, public formatting::FormattingDelegate
 {
 public:
     ////
@@ -410,19 +416,66 @@ public:
     int logfile = 0;
     int verbosity = 0;
     int use_mmap = 0;
-    int encoding_override = 0;
+    std::string encoding_override;
     int formatting_info = 0;
     int on_demand = 0;
     int ragged_rows = 0;
     std::map<int, int> _xf_index_to_xl_type_map;
-    std::vector<int> _sheet_visibility;
     int base;
     std::vector<uint8_t> filestr;
+    std::vector<uint8_t> mem;
     size_t stream_len;
 
     std::vector<sheet::Sheet> _sheet_list;
+    std::vector<std::string> _sheet_names;
+    std::vector<int> _sheet_visibility;
+    std::vector<int> _sh_abs_posn;
 
-    Book();
+    std::string raw_user_name;
+    int builtinfmtcount;
+    int _supbook_count;
+    std::vector<int> _externsheet_type_b57;
+    std::vector<std::string> _extnsht_name_from_num;
+    std::map<std::string, int> _sheet_num_from_name;
+    int _extnsht_count;
+    std::vector<int> _supbook_types;
+    int _resources_released;
+    std::vector<std::string> addin_func_names;
+
+    inline
+    Book() {
+        this->_sheet_list = {};
+        this->_sheet_names = {};
+        this->_sheet_visibility = {};  // from BOUNDSHEET record
+        this->nsheets = 0;
+        this->_sh_abs_posn = {};  // sheet's absolute position in the stream
+        //this->_sharedstrings = {};
+        //this->_rich_text_runlist_map = {};
+        this->raw_user_name = "";
+        //this->_sheethdr_count = 0;  // BIFF 4W only
+        this->builtinfmtcount = -1;  // unknown as yet. BIFF 3, 4S, 4W
+        this->initialise_format_info();
+        //this->_all_sheets_count = 0;  // includes macro & VBA sheets
+        this->_supbook_count = 0;
+        this->_supbook_locals_inx = -1;
+        this->_supbook_addins_inx = -1;
+        this->_all_sheets_map = {};  // maps an all_sheets index to a calc-sheets index (or -1)
+        this->_externsheet_info = {};
+        this->_externsheet_type_b57 = {};
+        this->_extnsht_name_from_num = {};
+        this->_sheet_num_from_name = {};
+        this->_extnsht_count = 0;
+        this->_supbook_types = {};
+        this->_resources_released = 0;
+        this->addin_func_names = {};
+        this->name_obj_list = {};
+        this->colour_map = {};
+        this->palette_record = {};
+        this->xf_list = {};
+        this->style_name_map = {};
+        this->mem = {};
+        this->filestr = {};
+    }
 
     inline
     void biff2_8_load(std::vector<uint8_t> file_contents)
@@ -431,7 +484,7 @@ public:
         this->logfile = 0;
         this->verbosity = 0;
         this->use_mmap = 0;
-        this->encoding_override = 0;
+        this->encoding_override = "";
         this->formatting_info = 0;
         this->on_demand = 0;
         this->ragged_rows = 0;
@@ -440,39 +493,37 @@ public:
         this->stream_len = file_contents.size();
 
         this->base = 0;
+        this->mem.clear();
         if (!utils::equals(utils::slice(this->filestr, 0, 8), compdoc::SIGNATURE)) {
             // got this one at the antique store
             this->mem = this->filestr;
         }
         else {
-            auto cd = compdoc::CompDoc(this->filestr)
+            auto cd = compdoc::CompDoc(this->filestr);
             if (USE_FANCY_CD) {
                 std::tie(this->mem, this->base, this->stream_len) = cd.locate_named_stream("Workbook");
-                if (!this->mem) {
+                if (!this->mem.empty()) {
                     std::tie(this->mem, this->base, this->stream_len) = cd.locate_named_stream("Book");
                 }
-                if (!this->mem) {
+                if (this->mem.empty()) {
                     throw XLRDError("Can't find workbook in OLE2 compound document");
                 }
             }
             else {
                 this->mem = cd.get_named_stream("Workbook");
-                if (!this->mem) {
+                if (this->mem.empty()) {
                     this->mem = cd.get_named_stream("Book");
                 }
-                if (!this->mem) {
-                    raise XLRDError("Can't find workbook in OLE2 compound document");
+                if (this->mem.empty()) {
+                    throw XLRDError("Can't find workbook in OLE2 compound document");
                 }
-                this->stream_len = len(this->mem)
+                this->stream_len = this->mem.size();
             }
-            if this->mem is not this->filestr:
-                if hasattr(this->filestr, "close"):
-                    this->filestr.close()
-                this->filestr = {};
         }
         this->_position = this->base;
-        if DEBUG:
-            print("mem: %s, base: %d, len: %d" % (type(self.mem), self.base, self.stream_len), file=self.logfile)
+        if (DEBUG) {
+            utils::printf("mem: %s, base: %d, len: %d", this->mem, this->base, this->stream_len);
+        }
     }
 
     inline
@@ -483,7 +534,16 @@ public:
 
     inline
     std::tuple<int, int, std::vector<uint8_t>>
-    get_record_parts();
+    get_record_parts() {
+        int pos = self._position;
+        auto& mem = self.mem;
+        int code = utils::as_uint16(mem, pos);
+        int length = utils::as_uint16(mem, pos+2);
+        pos += 4
+        auto data = utils::slice(mem, pos, pos+length);
+        self._position = pos + length;
+        return std::make_tuple(code, length, data);
+    }
 
     inline
     std::tuple<int, int, std::vector<uint8_t>>
@@ -501,48 +561,59 @@ public:
 
     void handle_builtinfmtcount(std::vector<uint8_t>& data);
 
-/*
-    def derive_encoding(self):
-        if self.encoding_override:
-            self.encoding = self.encoding_override
-        elif self.codepage is None:
-            if self.biff_version < 80:
-                fprintf(self.logfile,
-                    "*** No CODEPAGE record, no encoding_override: will use 'ascii'\n")
-                self.encoding = 'ascii'
-            else:
-                self.codepage = 1200 // utf16le
-                if self.verbosity >= 2:
-                    fprintf(self.logfile, "*** No CODEPAGE record; assuming 1200 (utf_16_le)\n")
-        else:
-            codepage = self.codepage
-            if codepage in encoding_from_codepage:
-                encoding = encoding_from_codepage[codepage]
-            elif 300 <= codepage <= 1999:
-                encoding = 'cp' + str(codepage)
-            else:
-                encoding = 'unknown_codepage_' + str(codepage)
-            if DEBUG or (self.verbosity and encoding != self.encoding) :
-                fprintf(self.logfile, "CODEPAGE: codepage %r -> encoding %r\n", codepage, encoding)
-            self.encoding = encoding
-        if self.codepage != 1200: // utf_16_le
+    inline
+    std::string derive_encoding() {
+        if (!this->encoding_override.empty()) {
+            this->encoding = this->encoding_override;
+        }else if (this->codepage == 0) {
+            if (this->biff_version < 80) {
+                utils::printf(
+                    "*** No CODEPAGE record, no encoding_override: will use 'ascii'\n");
+                this->encoding = "ascii";
+            } else {
+                this->codepage = 1200; // utf16le
+                if (this->verbosity >= 2) {
+                    utils::printf(
+                      "*** No CODEPAGE record; assuming 1200 (utf_16_le)\n");
+                }
+            }
+        } else {
+            int codepage = this->codepage;
+            std::string encoding;
+            if (utils::haskey(encoding_from_codepage, codepage)) {
+                encoding = encoding_from_codepage[codepage];
+            } else if (300 <= codepage && codepage <= 1999) {
+                encoding = format("cp%d", codepage);
+            } else {
+                encoding = format("unknown_codepage_%d", codepage);
+            }
+            if (DEBUG or (this->verbosity and encoding != this->encoding)) {
+                printf("CODEPAGE: codepage %d -> encoding %s\n", codepage, encoding);
+            }
+            this->encoding = encoding;
+        }
+        if (this->codepage != 1200) { // utf_16_le
             // If we don't have a codec that can decode ASCII into Unicode,
             // we're well & truly stuffed -- let the punter know ASAP.
-            try:
-                _unused = unicode(b'trial', self.encoding)
-            except BaseException as e:
-                fprintf(self.logfile,
-                    "ERROR *** codepage %r -> encoding %r -> %s: %s\n",
-                    self.codepage, self.encoding, type(e).__name__.split(".")[-1], e)
-                raise
-        if self.raw_user_name:
-            strg = unpack_string(self.user_name, 0, self.encoding, lenlen=1)
-            strg = strg.rstrip()
+            //try:
+            //    _unused = unicode(b'trial', this->encoding)
+            //except BaseException as e:
+            //    fprintf(this->logfile,
+            //        "ERROR *** codepage %r -> encoding %r -> %s: %s\n",
+            //        this->codepage, this->encoding, type(e).__name__.split(".")[-1], e)
+            //    raise
+        }
+        if (!this->raw_user_name.empty()) {
+            auto strg = unpack_string(this->user_name, 0, this->encoding, 1);
+            strg = strutil::rtrim(strg);
             // if DEBUG:
-            //     print "CODEPAGE: user name decoded from %r to %r" % (self.user_name, strg)
-            self.user_name = strg
-            self.raw_user_name = False
-        return self.encoding
+            //     print "CODEPAGE: user name decoded from %r to %r" % (this->user_name, strg)
+            this->user_name = strg;
+            this->raw_user_name = "";
+        }
+        return this->encoding;
+    }
+    /*
 
     def handle_codepage(self, data):
         // DEBUG = 0
@@ -903,77 +974,101 @@ public:
         if DEBUG: fprintf(self.logfile, "WRITEACCESS: %d bytes; raw=%s %r\n", len(data), self.raw_user_name, strg)
         strg = strg.rstrip()
         self.user_name = strg
+*/
 
-    def parse_globals(self):
+    inline
+    void xf_epilogue() {
+        formatting::xf_epilogue(this);
+    }
+
+    inline
+    void parse_globals()
+    {
         // DEBUG = 0
         // no need to position, just start reading (after the BOF)
-        formatting.initialise_book(self)
-        while 1:
-            rc, length, data = self.get_record_parts()
-            if DEBUG: print("parse_globals: record code is 0x%04x" % rc, file=self.logfile)
-            if rc == XL_SST:
-                self.handle_sst(data)
-            elif rc == XL_FONT or rc == XL_FONT_B3B4:
-                self.handle_font(data)
-            elif rc == XL_FORMAT: // XL_FORMAT2 is BIFF <= 3.0, can't appear in globals
-                self.handle_format(data)
-            elif rc == XL_XF:
-                self.handle_xf(data)
-            elif rc ==  XL_BOUNDSHEET:
-                self.handle_boundsheet(data)
-            elif rc == XL_DATEMODE:
-                self.handle_datemode(data)
-            elif rc == XL_CODEPAGE:
-                self.handle_codepage(data)
-            elif rc == XL_COUNTRY:
-                self.handle_country(data)
-            elif rc == XL_EXTERNNAME:
-                self.handle_externname(data)
-            elif rc == XL_EXTERNSHEET:
-                self.handle_externsheet(data)
-            elif rc == XL_FILEPASS:
-                self.handle_filepass(data)
-            elif rc == XL_WRITEACCESS:
-                self.handle_writeaccess(data)
-            elif rc == XL_SHEETSOFFSET:
-                self.handle_sheetsoffset(data)
-            elif rc == XL_SHEETHDR:
-                self.handle_sheethdr(data)
-            elif rc == XL_SUPBOOK:
-                self.handle_supbook(data)
-            elif rc == XL_NAME:
-                self.handle_name(data)
-            elif rc == XL_PALETTE:
-                self.handle_palette(data)
-            elif rc == XL_STYLE:
-                self.handle_style(data)
-            elif rc & 0xff == 9 and self.verbosity:
-                fprintf(self.logfile, "*** Unexpected BOF at posn %d: 0x%04x len=%d data=%r\n",
-                    self._position - length - 4, rc, length, data)
-            elif rc ==  XL_EOF:
-                self.xf_epilogue()
-                self.names_epilogue()
-                self.palette_epilogue()
-                if not self.encoding:
-                    self.derive_encoding()
-                if self.biff_version == 45:
+        formatting::initialise_book(this);
+        while (1) {
+            int rc, length;
+            std::vector<uint8_t> data;
+            std::tie(rc, length, data) = this->get_record_parts();
+            if (DEBUG){
+                utils::printf("parse_globals: record code is 0x%04x", rc);
+            }
+            if (rc == biffh::XL_SST) {
+                this->handle_sst(data);
+            } else if (rc == biffh::XL_FONT || rc == biffh::XL_FONT_B3B4) {
+                this->handle_font(data);
+            } else if (rc == biffh::XL_FORMAT) { // biffh::XL_FORMAT2 is BIFF <= 3.0, can't appear in globals
+                this->handle_format(data);
+            } else if (rc == biffh::XL_XF) {
+                this->handle_xf(data);
+            } else if (rc ==  biffh::XL_BOUNDSHEET) {
+                this->handle_boundsheet(data);
+            } else if (rc == biffh::XL_DATEMODE) {
+                this->handle_datemode(data);
+            } else if (rc == biffh::XL_CODEPAGE) {
+                this->handle_codepage(data);
+            } else if (rc == biffh::XL_COUNTRY) {
+                this->handle_country(data);
+            } else if (rc == biffh::XL_EXTERNNAME) {
+                this->handle_externname(data);
+            } else if (rc == biffh::XL_EXTERNSHEET) {
+                this->handle_externsheet(data);
+            } else if (rc == biffh::XL_FILEPASS) {
+                this->handle_filepass(data);
+            } else if (rc == biffh::XL_WRITEACCESS) {
+                this->handle_writeaccess(data);
+            } else if (rc == biffh::XL_SHEETSOFFSET) {
+                this->handle_sheetsoffset(data);
+            } else if (rc == biffh::XL_SHEETHDR) {
+                this->handle_sheethdr(data);
+            } else if (rc == biffh::XL_SUPBOOK) {
+                this->handle_supbook(data);
+            } else if (rc == biffh::XL_NAME) {
+                this->handle_name(data);
+            } else if (rc == biffh::XL_PALETTE) {
+                this->handle_palette(data);
+            } else if (rc == biffh::XL_STYLE) {
+                this->handle_style(data);
+            } else if ((rc & 0xff) == 9 && this->verbosity) {
+                utils::printf(
+                    "*** Unexpected BOF at posn %d: 0x%04x len=%d data=%s\n",
+                    this->_position - length - 4, rc, length, utils::str::repr(data));
+            } else if (rc == biffh::XL_EOF) {
+                this->xf_epilogue();
+                this->names_epilogue();
+                this->palette_epilogue();
+                if (this->encoding.empty()) {
+                    this->derive_encoding();
+                }
+                if (this->biff_version == 45) {
                     // DEBUG = 0
-                    if DEBUG: print("global EOF: position", self._position, file=self.logfile)
+                    if (DEBUG) utils::printf("global EOF: position=%d", self._position);
                     // if DEBUG:
                     //     pos = self._position - 4
                     //     print repr(self.mem[pos:pos+40])
-                return
-            else:
+                }
+                return;
+            }
+            else {
                 // if DEBUG:
                 //     print >> self.logfile, "parse_globals: ignoring record code 0x%04x" % rc
-                pass
+            }
+        }
+    }
 
-    def read(self, pos, length):
-        data = self.mem[pos:pos+length]
-        self._position = pos + len(data)
-        return data
+    inline
+    std::vector<uint8_t>
+    read(int pos, int length) {
+        auto data = utils::slice(self.mem, pos, pos+length);
+        self._position = pos + data.size();
+        return data;
+    }
 
-    def getbof(self, rqd_stream):
+    inline
+    void getbof(int rqd_stream) {
+    }
+/*
         // DEBUG = 1
         // if DEBUG: print >> self.logfile, "getbof(): position", self._position
         if DEBUG: print("reqd: 0x%04x" % rqd_stream, file=self.logfile)
@@ -1052,7 +1147,7 @@ public:
 
 
 inline
-Book open_workbook_xls(std::string filename)
+Book open_workbook_xls(std::vector<uint8_t> file_contents)
 {
     // if TOGGLE_GC:
     //     orig_gc_enabled = gc.isenabled()
@@ -1060,21 +1155,21 @@ Book open_workbook_xls(std::string filename)
     //         gc.disable()
     Book bk = Book();
     try {
-        bk.biff2_8_load(filename);
-        int biff_version = bk.getbof(XL_WORKBOOK_GLOBALS);
+        bk.biff2_8_load(file_contents);
+        int biff_version = bk.getbof(biffh::XL_WORKBOOK_GLOBALS);
         if (biff_version == 0) {
             throw XLRDError("Can't determine file's BIFF version");
         }
-        if (utils::indexof(SUPPORTED_VERSIONS, biff_version) > -1) {
+        if (utils::indexof(SUPPORTED_VERSIONS, biff_version) == -1) {
             throw XLRDError(utils::str::format(
                 "BIFF version %s is not supported"
-                , biff_text_from_num[biff_version]
+                , biffh::biff_text_from_num[biff_version]
             ));
         }
         bk.biff_version = biff_version;
         if (biff_version <= 40) {
             // no workbook globals, only 1 worksheet
-            fprintf(bk.logfile,
+            utils::printf(
                 "*** WARNING: on_demand is not supported for this Excel version.\n"
                 "*** Setting on_demand to False.\n");
             bk.on_demand = false;

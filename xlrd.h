@@ -333,9 +333,7 @@ namespace xlrd {
 
 static const char* __VERSION__ = "0.9.4";
 
-using Book = xlrd::book::Book;
-
-using utils = xlrd::utils;
+using Book = book::Book;
 
 //#
 //
@@ -403,7 +401,7 @@ Book open_workbook(const std::vector<uint8_t>& file_contents)
             return bk;
         }
         if (utils::haskey(component_names, "xl/workbook.bin")) {
-            throw XLRDError('Excel 2007 xlsb file; not supported');
+            throw XLRDError("Excel 2007 xlsb file; not supported");
         }
         if (utils::haskey(component_names, "content.xml") {
             throw XLRDError("Openoffice.org ODS file; not supported");

@@ -5,7 +5,7 @@
 ////
 // Module for parsing/evaluating Microsoft Excel formulas.
 //
-// <p>Copyright © 2005-2012 Stephen John Machin, Lingfo Pty Ltd</p>
+// <p>Copyright ï¿½ 2005-2012 Stephen John Machin, Lingfo Pty Ltd</p>
 // <p>This module is part of the xlrd package, which is released under
 // a BSD-style licence.</p>
 ////
@@ -13,9 +13,11 @@
 // No part of the content of this file was derived from the works of David Giffin.
 
 #include <set>
+#include <cmath>
 
-#include "./biffh.h"  //  unpack_unicode_update_pos, unpack_string_update_pos, \
-                    //  XLRDError, hex_char_dump, error_text_from_code, BaseObject
+#include "./biffh.h"
+//  unpack_unicode_update_pos, unpack_string_update_pos,
+//  XLRDError, hex_char_dump, error_text_from_code, BaseObject
 
 #include "./utils.h"
 
@@ -29,35 +31,15 @@ auto& unpack_string_update_pos = biffh::unpack_string_update_pos;
 using XLRDError = biffh::XLRDError;
 auto& error_text_from_code = biffh::error_text_from_code;
 
-/*
-from .biffh import unpack_unicode_update_pos, unpack_string_update_pos, \
-    XLRDError, hex_char_dump, error_text_from_code, BaseObject
+const int FMLA_TYPE_CELL = 1;
+const int FMLA_TYPE_SHARED = 2;
+const int FMLA_TYPE_ARRAY = 4;
+const int FMLA_TYPE_COND_FMT = 8;
+const int FMLA_TYPE_DATA_VAL = 16;
+const int FMLA_TYPE_NAME = 32;
+const int ALL_FMLA_TYPES = 63;
 
-__all__ = [
-    'oBOOL', 'oERR', 'oNUM', 'oREF', 'oREL', 'oSTRG', 'oUNK',
-    'decompile_formula',
-    'dump_formula',
-    'evaluate_name_formula',
-    'okind_dict',
-    'rangename3d', 'rangename3drel', 'cellname', 'cellnameabs', 'colname',
-    'FMLA_TYPE_CELL',
-    'FMLA_TYPE_SHARED',
-    'FMLA_TYPE_ARRAY',
-    'FMLA_TYPE_COND_FMT',
-    'FMLA_TYPE_DATA_VAL',
-    'FMLA_TYPE_NAME',
-    ]
-*/
-
-static int FMLA_TYPE_CELL = 1;
-static int FMLA_TYPE_SHARED = 2;
-static int FMLA_TYPE_ARRAY = 4;
-static int FMLA_TYPE_COND_FMT = 8;
-static int FMLA_TYPE_DATA_VAL = 16;
-static int FMLA_TYPE_NAME = 32;
-static int ALL_FMLA_TYPES = 63;
-
-static std::map<int, std::string>
+const std::map<int, std::string>
 FMLA_TYPEDESCR_MAP = {
     {1 , "CELL"},
     {2 , "SHARED"},
@@ -67,7 +49,7 @@ FMLA_TYPEDESCR_MAP = {
     {32, "NAME"},
 };
 
-static std::map<int, int>
+const std::map<int, int>
 _TOKEN_NOT_ALLOWED_DICT = {
     {0x01,   ALL_FMLA_TYPES - FMLA_TYPE_CELL}, // tExp
     {0x02,   ALL_FMLA_TYPES - FMLA_TYPE_CELL}, // tTbl
@@ -94,16 +76,16 @@ int _TOKEN_NOT_ALLOWED(int key, int alt) {
 }
 
 
-static int oBOOL = 3;
-static int oERR =  4;
-static int oMSNG = 5; // tMissArg
-static int oNUM =  2;
-static int oREF = -1;
-static int oREL = -2;
-static int oSTRG = 1;
-static int oUNK =  0;
+const int oBOOL = 3;
+const int oERR =  4;
+const int oMSNG = 5; // tMissArg
+const int oNUM =  2;
+const int oREF = -1;
+const int oREL = -2;
+const int oSTRG = 1;
+const int oUNK =  0;
 
-static std::map<int, std::string>
+const std::map<int, std::string>
 okind_dict = {
     {-2, "oREL"},
     {-1, "oREF"},
@@ -115,26 +97,25 @@ okind_dict = {
     {5 , "oMSNG"},
 };
 
-static char
-listsep = ','; //////// probably should depend on locale
+const char listsep = ','; //////// probably should depend on locale
 
 
 // sztabN[opcode] -> the number of bytes to consume.
 // -1 means variable
 // -2 means this opcode not implemented in this version.
 // Which N to use? Depends on biff_version; see szdict.
-static std::vector<int>
+const std::vector<int>
 sztab0 = {-2, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 8, 4, 2, 2, 3, 9, 8, 2, 3, 8, 4, 7, 5, 5, 5, 2, 4, 7, 4, 7, 2, 2, -2, -2, -2, -2, -2, -2, -2, -2, 3, -2, -2, -2, -2, -2, -2, -2};
-static std::vector<int>
+const std::vector<int>
 sztab1 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 11, 5, 2, 2, 3, 9, 9, 2, 3, 11, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, 3, -2, -2, -2, -2, -2, -2, -2};
-static std::vector<int>
+const std::vector<int>
 sztab2 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, 11, 5, 2, 2, 3, 9, 9, 3, 4, 11, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2};
-static std::vector<int>
+const std::vector<int>
 sztab3 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -2, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 15, 4, 7, 7, 7, 7, 3, 4, 7, 4, 7, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 25, 18, 21, 18, 21, -2, -2};
-static std::vector<int>
+const std::vector<int>
 sztab4 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 5, 5, 9, 7, 7, 7, 3, 5, 9, 5, 9, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 7, 7, 11, 7, 11, -2, -2};
 
-static std::map<int, std::vector<int>&>
+const std::map<int, const std::vector<int>&>
 szdict = {
     {20, sztab0},
     {21, sztab0},
@@ -454,10 +435,10 @@ adjust_cell_addr_biff8(int rowval, int colval, int reldelta, int browx, int bcol
     int rowx = rowval;
     int colx = colval & 0xff;
     if (reldelta) {
-        if (row_rel and rowx >= 32768) {
+        if (row_rel && rowx >= 32768) {
             rowx -= 65536;
         }
-        if (col_rel and colx >= 128) {
+        if (col_rel && colx >= 128) {
             colx -= 256;
         }
     }
@@ -480,10 +461,10 @@ adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int b
     int rowx = rowval & 0x3fff;
     int colx = colval;
     if (reldelta) {
-        if (row_rel and rowx >= 8192) {
+        if (row_rel && rowx >= 8192) {
             rowx -= 16384;
         }
-        if (col_rel and colx >= 128) {
+        if (col_rel && colx >= 128) {
             colx -= 256;
         }
     }
@@ -500,7 +481,7 @@ adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int b
 
 inline
 std::tuple<int, int, int, int>
-get_cell_addr(std::vector<uint8_t> data, int pos, int bv, int reldelta, int browx, int bcolx) {
+get_cell_addr(const std::vector<uint8_t>& data, int pos, int bv, int reldelta, int browx, int bcolx) {
     if (bv >= 80) {
         int rowval = utils::as_uint16(data, pos);
         int colval = utils::as_uint16(data, pos+2);
@@ -516,85 +497,147 @@ get_cell_addr(std::vector<uint8_t> data, int pos, int bv, int reldelta, int brow
     }
 }
 
-/*
-def get_cell_range_addr(data, pos, bv, reldelta, browx=None, bcolx=None):
-    if bv >= 80:
-        row1val, row2val, col1val, col2val = unpack("<HHHH", data[pos:pos+8])
+inline
+std::tuple<std::tuple<int, int, int, int>, std::tuple<int, int, int, int>>
+get_cell_range_addr(const std::vector<uint8_t>& data, int pos, int bv,
+                    int reldelta, int browx=-1, int bcolx=-1) {
+    int row1val, row2val, col1val, col2val;
+    if (bv >= 80) {
+        // row1val, row2val, col1val, col2val = unpack("<HHHH", data[pos:pos+8])
+        row1val = utils::as_uint16(data, pos);
+        row2val = utils::as_uint16(data, pos+2);
+        col1val = utils::as_uint16(data, pos+4);
+        col2val = utils::as_uint16(data, pos+6);
         // print "    rv=%04xh cv=%04xh" % (row1val, col1val)
         // print "    rv=%04xh cv=%04xh" % (row2val, col2val)
-        res1 = adjust_cell_addr_biff8(row1val, col1val, reldelta, browx, bcolx)
-        res2 = adjust_cell_addr_biff8(row2val, col2val, reldelta, browx, bcolx)
-        return res1, res2
-    else:
-        row1val, row2val, col1val, col2val = unpack("<HHBB", data[pos:pos+6])
+        auto res1 = adjust_cell_addr_biff8(row1val, col1val, reldelta, browx, bcolx);
+        auto res2 = adjust_cell_addr_biff8(row2val, col2val, reldelta, browx, bcolx);
+        return std::make_tuple(res1, res2);
+    }
+    else {
+        // row1val, row2val, col1val, col2val = unpack("<HHBB", data[pos:pos+6])
+        row1val = utils::as_uint16(data, pos);
+        row2val = utils::as_uint16(data, pos+2);
+        col1val = utils::as_uint8(data, pos+4);
+        col2val = utils::as_uint8(data, pos+5);
         // print "    rv=%04xh cv=%04xh" % (row1val, col1val)
         // print "    rv=%04xh cv=%04xh" % (row2val, col2val)
-        res1 = adjust_cell_addr_biff_le7(
-                    row1val, col1val, reldelta, browx, bcolx)
-        res2 = adjust_cell_addr_biff_le7(
-                    row2val, col2val, reldelta, browx, bcolx)
-        return res1, res2
+        auto res1 = adjust_cell_addr_biff_le7(
+                    row1val, col1val, reldelta, browx, bcolx);
+        auto res2 = adjust_cell_addr_biff_le7(
+                    row2val, col2val, reldelta, browx, bcolx);
+        return std::make_tuple(res1, res2);
+    }
+}
 
-def get_externsheet_local_range(bk, refx, blah=0):
-    try:
-        info = bk._externsheet_info[refx]
-    except IndexError:
-        print("!!! get_externsheet_local_range: refx=%d, not in range(%d)" \
-            % (refx, len(bk._externsheet_info)), file=bk.logfile)
-        return (-101, -101)
-    ref_recordx, ref_first_sheetx, ref_last_sheetx = info
-    if ref_recordx == bk._supbook_addins_inx:
-        if blah:
-            print("/// get_externsheet_local_range(refx=%d) -> addins %r" % (refx, info), file=bk.logfile)
-        assert ref_first_sheetx == 0xFFFE == ref_last_sheetx
-        return (-5, -5)
-    if ref_recordx != bk._supbook_locals_inx:
-        if blah:
-            print("/// get_externsheet_local_range(refx=%d) -> external %r" % (refx, info), file=bk.logfile)
-        return (-4, -4) // external reference
-    if ref_first_sheetx == 0xFFFE == ref_last_sheetx:
-        if blah:
-            print("/// get_externsheet_local_range(refx=%d) -> unspecified sheet %r" % (refx, info), file=bk.logfile)
-        return (-1, -1) // internal reference, any sheet
-    if ref_first_sheetx == 0xFFFF == ref_last_sheetx:
-        if blah:
-            print("/// get_externsheet_local_range(refx=%d) -> deleted sheet(s)" % (refx, ), file=bk.logfile)
-        return (-2, -2) // internal reference, deleted sheet(s)
-    nsheets = len(bk._all_sheets_map)
-    if not(0 <= ref_first_sheetx <= ref_last_sheetx < nsheets):
-        if blah:
-            print("/// get_externsheet_local_range(refx=%d) -> %r" % (refx, info), file=bk.logfile)
-            print("--- first/last sheet not in range(%d)" % nsheets, file=bk.logfile)
-        return (-102, -102) // stuffed up somewhere :-(
-    xlrd_sheetx1 = bk._all_sheets_map[ref_first_sheetx]
-    xlrd_sheetx2 = bk._all_sheets_map[ref_last_sheetx]
-    if not(0 <= xlrd_sheetx1 <= xlrd_sheetx2):
-        return (-3, -3) // internal reference, but to a macro sheet
-    return xlrd_sheetx1, xlrd_sheetx2
+class FormulaDelegate {
+public:
+    std::vector<std::tuple<int, int, int>> _externsheet_info;
+    std::vector<int> _all_sheets_map;
+    virtual std::vector<std::string> sheet_names();
+    int _supbook_addins_inx;
+    int _supbook_locals_inx;
+};
 
-def get_externsheet_local_range_b57(
-        bk, raw_extshtx, ref_first_sheetx, ref_last_sheetx, blah=0):
-    if raw_extshtx > 0:
-        if blah:
-            print("/// get_externsheet_local_range_b57(raw_extshtx=%d) -> external" % raw_extshtx, file=bk.logfile)
-        return (-4, -4) // external reference
-    if ref_first_sheetx == -1 and ref_last_sheetx == -1:
-        return (-2, -2) // internal reference, deleted sheet(s)
-    nsheets = len(bk._all_sheets_map)
-    if not(0 <= ref_first_sheetx <= ref_last_sheetx < nsheets):
-        if blah:
-            print("/// get_externsheet_local_range_b57(%d, %d, %d) -> ???" \
-                % (raw_extshtx, ref_first_sheetx, ref_last_sheetx), file=bk.logfile)
-            print("--- first/last sheet not in range(%d)" % nsheets, file=bk.logfile)
-        return (-103, -103) // stuffed up somewhere :-(
-    xlrd_sheetx1 = bk._all_sheets_map[ref_first_sheetx]
-    xlrd_sheetx2 = bk._all_sheets_map[ref_last_sheetx]
-    if not(0 <= xlrd_sheetx1 <= xlrd_sheetx2):
-        return (-3, -3) // internal reference, but to a macro sheet
-    return xlrd_sheetx1, xlrd_sheetx2
+inline
+std::tuple<int, int>
+get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
+    if (refx >= (int)bk._externsheet_info.size()) {
+        utils::printf(
+            "!!! get_externsheet_local_range: refx=%d, not in range(%d)"
+            , refx, bk._externsheet_info.size());
+        return std::make_tuple(-101, -101);
+    }
+    auto info = bk._externsheet_info[refx];
+    int ref_recordx = std::get<0>(info);
+    int ref_first_sheetx = std::get<1>(info);
+    int ref_last_sheetx = std::get<2>(info);
+    if (ref_recordx == bk._supbook_addins_inx) {
+        if (blah) {
+            utils::printf(
+                "/// get_externsheet_local_range(refx=%d) -> addins %s"
+                , refx, strutil::repr(info));
+        }
+        //assert ref_first_sheetx == 0xFFFE == ref_last_sheetx
+        return std::make_tuple(-5, -5);
+    }
+    if (ref_recordx != bk._supbook_locals_inx) {
+        if (blah) {
+            utils::printf(
+                "/// get_externsheet_local_range(refx=%d) -> external %s"
+                , refx, strutil::repr(info));
+        }
+        return std::make_tuple(-4, -4); // external reference
+    }
+    if (ref_first_sheetx == 0xFFFE && 0xFFFE == ref_last_sheetx) {
+        if (blah) {
+            utils::printf(
+                "/// get_externsheet_local_range(refx=%d) -> unspecified sheet %s"
+                , refx, strutil::repr(info));
+        }
+        return std::make_tuple(-1, -1); // internal reference, any sheet
+    }
+    if (ref_first_sheetx == 0xFFFF && 0xFFFF == ref_last_sheetx) {
+        if (blah) {
+            utils::printf(
+                "/// get_externsheet_local_range(refx=%d) -> deleted sheet(s)",
+                refx);
+        }
+        return std::make_tuple(-2, -2); // internal reference, deleted sheet(s)
+    }
+    int nsheets = bk._all_sheets_map.size();
+    if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx < nsheets)) {
+        if (blah) {
+            utils::printf("/// get_externsheet_local_range(refx=%d) -> %s", refx, strutil::repr(info));
+            utils::printf("--- first/last sheet not in range(%d)", nsheets);
+        }
+        return std::make_tuple(-102, -102); // stuffed up somewhere :-(
+    }
+    int xlrd_sheetx1 = bk._all_sheets_map[ref_first_sheetx];
+    int xlrd_sheetx2 = bk._all_sheets_map[ref_last_sheetx];
+    if (!(0 <= xlrd_sheetx1 && xlrd_sheetx1 <= xlrd_sheetx2)) {
+        return std::make_tuple(-3, -3); // internal reference, but to a macro sheet
+    }
+    return std::make_tuple(xlrd_sheetx1, xlrd_sheetx2);
+}
 
-class FormulaError(Exception):
-    pass
+inline
+std::tuple<int, int>
+get_externsheet_local_range_b57(
+    FormulaDelegate bk, int raw_extshtx,
+    int ref_first_sheetx, int ref_last_sheetx, int blah=0)
+{
+    if (raw_extshtx > 0) {
+        if (blah) {
+            utils::printf("/// get_externsheet_local_range_b57(raw_extshtx=%d) -> external", raw_extshtx);
+        }
+        return std::make_tuple(-4, -4); // external reference
+    }
+    if (ref_first_sheetx == -1 && ref_last_sheetx == -1) {
+        return std::make_tuple(-2, -2); // internal reference, deleted sheet(s)
+    }
+    int nsheets = bk._all_sheets_map.size();
+    if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx  < nsheets)) {
+        if (blah) {
+            utils::printf(
+                "/// get_externsheet_local_range_b57(%d, %d, %d) -> ???"
+                , raw_extshtx, ref_first_sheetx, ref_last_sheetx
+            );
+            utils::printf("--- first/last sheet not in range(%d)", nsheets);
+        }
+        return std::make_tuple(-103, -103); // stuffed up somewhere :-(
+    }
+    int xlrd_sheetx1 = bk._all_sheets_map[ref_first_sheetx];
+    int xlrd_sheetx2 = bk._all_sheets_map[ref_last_sheetx];
+    if (!(0 <= xlrd_sheetx1 && xlrd_sheetx1 <= xlrd_sheetx2)) {
+        return std::make_tuple(-3, -3); // internal reference, but to a macro sheet
+    }
+    return std::make_tuple(xlrd_sheetx1, xlrd_sheetx2);
+}
+
+class FormulaError: public std::runtime_error
+{
+};
 
 
 ////
@@ -656,8 +699,6 @@ class FormulaError(Exception):
 // </tr>
 // </table>
 //<p></p>
-
-*/
 
 class Operand
 {
@@ -742,68 +783,120 @@ public:
     int rowxhi;
     int colxlo;
     int colxhi;
-    std::tuple<int, int, int, int, int, int> coords;
-    std::tuple<int, int, int, int, int, int> relflags;
+    std::vector<int> coords;
+    std::vector<int> relflags;
 
     inline
-    Ref3D(std::tuple<int, int, int, int, int, int, int, int, int, int, int, int>atuple)
+    Ref3D(int c1, int c2, int c3, int c4, int c5, int c6, int r1=0, int r2=0, int r3=0, int r4=0, int r5=0, int r6=0)
     {
-        this->coords = {std::get<0>(atuple), std::get<1>(atuple), std::get<2>(atuple),
-                        std::get<3>(atuple), std::get<4>(atuple), std::get<5>(atuple)};
-        this->relflags = {std::get<6>(atuple), std::get<7>(atuple), std::get<8>(atuple),
-                          std::get<9>(atuple), std::get<10>(atuple), std::get<11>(atuple)};
-        this->shtxlo = std::get<0>(atuple);
-        this->shtxhi = std::get<1>(atuple);
-        this->rowxlo = std::get<2>(atuple);
-        this->rowxhi = std::get<3>(atuple);
-        this->colxlo = std::get<4>(atuple);
-        this->colxhi = std::get<5>(atuple);
+        this->coords = std::vector<int>{c1, c2, c3, c4, c5, c6};
+        this->relflags = std::vector<int>{r1, r2, r3, r4, r5, r6};
+        this->shtxlo = c1;
+        this->shtxhi = c2;
+        this->rowxlo = c3;
+        this->rowxhi = c4;
+        this->colxlo = c5;
+        this->colxhi = c6;
     };
 
     // def __repr__(self):
     //     if not self.relflags or self.relflags == (0, 0, 0, 0, 0, 0):
     //         return "Ref3D(coords=%r)" % (self.coords, )
     //     else:
-    //         return "Ref3D(coords=%r, relflags=%r)" \
+    //         return "Ref3D(coords=%r, relflags=%r)"
     //             % (self.coords, self.relflags)
 };
 
+
+const int tAdd = 0x03;
+const int tSub = 0x04;
+const int tMul = 0x05;
+const int tDiv = 0x06;
+const int tPower = 0x07;
+const int tConcat = 0x08;
+enum {
+  tLT = 0x09, tLE, tEQ, tGE, tGT, tNE
+  // = range(0x09, 0x0F)
+};
+
+//import operator as opr
+
+double nop(double x) {
+    return x;
+}
+
+double tod(utils::any a) {
+    if (a.is<double>()) {
+        return a.cast<double>();
+    } else if (a.is<float>()) {
+        return a.cast<float>();
+    } else if (a.is<int>()) {
+        return a.cast<int>();
+    } else if (a.is<std::string>()) {
+        return std::stod(a.cast<std::string>());
+    }
+    return 0.0;
+}
+
+utils::any _opr_add(utils::any x, utils::any y) {
+    if (x.is<int>() && y.is<int>()) {
+        return x.cast<int>() + y.cast<int>();
+    }
+    return tod(x) + tod(y);
+}
+utils::any _opr_pow(utils::any x, utils::any y) {
+    return std::pow(tod(x), tod(y));
+}
+
+template<class T> bool _opr_lt(T x, T y) {return x <  y;}
+template<class T> bool _opr_le(T x, T y) {return x <= y;}
+template<class T> bool _opr_eq(T x, T y) {return x == y;}
+template<class T> bool _opr_ge(T x, T y) {return x >= y;}
+template<class T> bool _opr_gt(T x, T y) {return x >  y;}
+template<class T> bool _opr_ne(T x, T y) {return x != y;}
+
+std::string num2strg(double num) {    
+    // """Attempt to emulate Excel's default conversion
+    //    from number to string.
+    // """
+    double v = num - (int)num;
+    if (std::abs(v) < 0.00001) {
+        return strutil::format("%d", (int)num);
+    }
+    return strutil::format("%f", num);
+}
+double strg2num(std::string s) {
+    return std::stod(s);
+}
+std::string tostr(utils::any a) {
+    if (a.is<int>()) {
+        return strutil::format("%d", a.cast<int>());
+    } else if (a.is<double>()||a.is<float>()) {
+        return num2strg(a.cast<int>());
+    } else if (a.is<std::string>()) {
+        return a.cast<std::string>();
+    }
+    return "";
+}
+
+utils::any
+_cast_num(utils::any a) {
+    if (a.is<int>() || a.is<float>() || a.is<double>()) {
+        return a;
+    } else if (a.is<std::string>()) {
+        return std::stod(a.cast<std::string>());
+    }
+    return utils::any(0.);
+}
+
+const std::map<int, decltype(tostr)*>
+_arith_argdict = {{oNUM, &tostr},     {oSTRG, &tostr}};
+
+// _cmp_argdict =   {oNUM: nop,     oSTRG: nop}
+// // Seems no conversions done on relops; in Excel, "1" > 9 produces TRUE.
+// _strg_argdict =  {oNUM:num2strg, oSTRG:nop}
+
 /*
-tAdd = 0x03
-tSub = 0x04
-tMul = 0x05
-tDiv = 0x06
-tPower = 0x07
-tConcat = 0x08
-tLT, tLE, tEQ, tGE, tGT, tNE = range(0x09, 0x0F)
-
-import operator as opr
-
-def nop(x):
-    return x
-
-def _opr_pow(x, y): return x ** y
-
-def _opr_lt(x, y): return x <  y
-def _opr_le(x, y): return x <= y
-def _opr_eq(x, y): return x == y
-def _opr_ge(x, y): return x >= y
-def _opr_gt(x, y): return x >  y
-def _opr_ne(x, y): return x != y
-
-def num2strg(num):
-    """Attempt to emulate Excel's default conversion
-       from number to string.
-    """
-    s = str(num)
-    if s.endswith(".0"):
-        s = s[:-2]
-    return s
-
-_arith_argdict = {oNUM: nop,     oSTRG: float}
-_cmp_argdict =   {oNUM: nop,     oSTRG: nop}
-// Seems no conversions done on relops; in Excel, "1" > 9 produces TRUE.
-_strg_argdict =  {oNUM:num2strg, oSTRG:nop}
 binop_rules = {
     tAdd:   (_arith_argdict, oNUM, opr.add,  30, '+'),
     tSub:   (_arith_argdict, oNUM, opr.sub,  30, '-'),
@@ -817,20 +910,22 @@ binop_rules = {
     tGE:    (_cmp_argdict, oBOOL, _opr_ge,   10, '>='),
     tGT:    (_cmp_argdict, oBOOL, _opr_gt,   10, '>'),
     tNE:    (_cmp_argdict, oBOOL, _opr_ne,   10, '<>'),
-    }
+};
 
 unop_rules = {
     0x13: (lambda x: -x,        70, '-', ''), // unary minus
     0x12: (lambda x: x,         70, '+', ''), // unary plus
     0x14: (lambda x: x / 100.0, 60, '',  '%'),// percent
     }
+*/
 
-LEAF_RANK = 90
-FUNC_RANK = 90
+const int LEAF_RANK = 90;
+const int FUNC_RANK = 90;
 
-STACK_ALARM_LEVEL = 5
-STACK_PANIC_LEVEL = 10
+const int STACK_ALARM_LEVEL = 5;
+const int STACK_PANIC_LEVEL = 10;
 
+/*
 def evaluate_name_formula(bk, nobj, namex, blah=0, level=0):
     if level > STACK_ALARM_LEVEL:
         blah = 1
@@ -2127,6 +2222,8 @@ def dump_formula(bk, data, fmlalen, bv, reldelta, blah=0, isname=0):
             (not not any_rel, any_err, stack), file=bk.logfile)
         if len(stack) >= 2:
             print("*** Stack has unprocessed args", file=bk.logfile)
+*/
+
 
 // === Some helper functions for displaying cell references ===
 
@@ -2135,21 +2232,28 @@ def dump_formula(bk, data, fmlalen, bv, reldelta, blah=0, isname=0):
 // xlrd stores this internally with bounds of (0, 1, ...) and
 // relative flags of (1, 1, ...). These functions display the
 // sheet component as empty, just like Excel etc.
-
-def rownamerel(rowx, rowxrel, browx=None, r1c1=0):
+inline
+std::string rownamerel(int rowx, int rowxrel, int browx=-1, int r1c1=0) {
     // if no base rowx is provided, we have to return r1c1
-    if browx is None:
-        r1c1 = True
-    if not rowxrel:
-        if r1c1:
-            return "R%d" % (rowx+1)
-        return "$%d" % (rowx+1)
-    if r1c1:
-        if rowx:
-            return "R[%d]" % rowx
-        return "R"
-    return "%d" % ((browx + rowx) % 65536 + 1)
+    if (browx == -1) {
+        r1c1 = 1;
+    }
+    if (!rowxrel) {
+        if (r1c1) {
+            return strutil::format("R%d", rowx+1);
+        }
+        return strutil::format("$%d", rowx+1);
+    }
+    if (r1c1) {
+        if (rowx) {
+            return strutil::format("R[%d]", rowx);
+        }
+        return "R";
+    }
+    return strutil::format("%d", (browx + rowx) % 65536 + 1);
+}
 
+/*
 def colnamerel(colx, colxrel, bcolx=None, r1c1=0):
     // if no base colx is provided, we have to return r1c1
     if bcolx is None:
@@ -2189,18 +2293,29 @@ def cellnamerel(rowx, colx, rowxrel, colxrel, browx=None, bcolx=None, r1c1=0):
     if r1c1:
         return r + c
     return c + r
-
+*/
 ////
 // Utility function: 7 => 'H', 27 => 'AB'
-def colname(colx):
-    """ 7 => 'H', 27 => 'AB' """
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    if colx <= 25:
-        return alphabet[colx]
-    else:
-        xdiv26, xmod26 = divmod(colx, 26)
-        return alphabet[xdiv26 - 1] + alphabet[xmod26]
-
+inline
+std::string colname(int colx) {
+    // """ 7 => 'H', 27 => 'AB' """
+    static const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    if (colx < 0) {
+        throw std::logic_error("IndexError");
+    } else if (colx <= 25) {
+        return std::string(1, alphabet[colx]);
+    }
+    else {
+        div_t res = std::div(colx, 26);
+        int xdiv26 = res.quot;
+        int xmod26 = res.rem;
+        if (xdiv26 > 26) {
+            throw std::logic_error("IndexError");
+        }
+        return {alphabet[xdiv26 - 1], alphabet[xmod26], '\0'};
+    }
+}
+/*
 def rangename2d(rlo, rhi, clo, chi, r1c1=0):
     """ (5, 20, 7, 10) => '$H$6:$J$20' """
     if r1c1:
@@ -2274,15 +2389,8 @@ quotedsheetname(std::vector<std::string> shnames, int shx)
     return shname;
 }
 
-
-class FormulaSheetNamesDelegate
-{
-public:
-    std::vector<std::string> sheet_names();
-};
-
 inline
-std::string sheetrange(FormulaSheetNamesDelegate& book, int slo, int shi)
+std::string sheetrange(FormulaDelegate& book, int slo, int shi)
 {
     auto shnames = book.sheet_names();
     auto shdesc = quotedsheetname(shnames, slo);
@@ -2293,7 +2401,7 @@ std::string sheetrange(FormulaSheetNamesDelegate& book, int slo, int shi)
 }
 
 inline
-std::string sheetrangerel(FormulaSheetNamesDelegate& book,
+std::string sheetrangerel(FormulaDelegate& book,
                           std::tuple<int, int> srange,
                           std::tuple<int, int> srangerel)
 {
