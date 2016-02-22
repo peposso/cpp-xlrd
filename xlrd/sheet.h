@@ -2,7 +2,7 @@
 // -*- coding: cp1252 -*-
 
 ////
-// <p> Portions copyright � 2005-2013 Stephen John Machin, Lingfo Pty Ltd</p>
+// <p> Portions copyright (c) 2005-2013 Stephen John Machin, Lingfo Pty Ltd</p>
 // <p>This module is part of the xlrd package, which is released under a BSD-style licence.</p>
 ////
 
@@ -626,7 +626,32 @@ public:
     // standard character (the digit zero in the first font).
 
     inline
-    void computed_column_width(int colx);
+    void computed_column_width(int colx) {
+        self.req_fmt_info();
+        if (self.biff_version >= 80) {
+            colinfo = self.colinfo_map.get(colx, None)
+            if colinfo is not None:
+                return colinfo.width
+            if self.standardwidth is not None:
+                return self.standardwidth;
+        } else if (self.biff_version >= 40) {
+            if self.gcw[colx]:
+                if self.standardwidth is not None:
+                    return self.standardwidth
+            else:
+                colinfo = self.colinfo_map.get(colx, None)
+                if colinfo is not None:
+                    return colinfo.width
+        } else if (self.biff_version == 30) {
+            colinfo = self.colinfo_map.get(colx, None);
+            if colinfo is not None:
+                return colinfo.width;
+        }
+        // All roads lead to Rome and the DEFCOLWIDTH ...
+        if (self.defcolwidth is not None)
+            return self.defcolwidth * 256;
+        return 8 * 256; // 8 is what Excel puts in a DEFCOLWIDTH record
+    }
 
     inline
     void handle_hlink(std::vector<uint8_t> data);
@@ -871,7 +896,7 @@ public:
     //         return "%s:%r (XF:%r)" % (ctype_text[self.ctype], self.value, self.xf_index)
 };
 
-Cell empty_cell = Cell(biffh::XL_CELL_EMPTY, "");
+const Cell empty_cell = Cell(biffh::XL_CELL_EMPTY, "");
 
 ////////// =============== Colinfo and Rowinfo ============================== //////////
 

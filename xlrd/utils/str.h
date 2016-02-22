@@ -128,12 +128,10 @@ itersplit iterline(const std::string& haystack) {
     return itersplit(haystack, "\n");
 }
 
-// make_seq<N> : index_seq<0, 1, ..., N-1>
+// make_seq<N> : index_seq<0, 1, ..., N>
 template<int... i> struct index_seq{ constexpr index_seq(){}; };
-template<int i, int... j>
-struct make_seq : make_seq<i-1, i, j...>{};
-template<int... i>
-struct make_seq<0, i...> : index_seq<0, i...>{};
+template<int i, int... j> struct make_seq : make_seq<i-1, i, j...>{};
+template<int... i> struct make_seq<0, i...> : index_seq<0, i...>{};
 
 // template<class R, class A>
 // struct typ{};
@@ -178,7 +176,7 @@ std::string repr(F f, Rest...r) {
 template<class V>
 std::string repr(const std::vector<V>& vec) {
     std::string buf = "vector{";
-    size_t len = vec.size();
+    int len = (int)vec.size();
     for (int i=0; i < len; i++) {
         buf.append(repr(vec[i]));
         if (i < len-1) buf.append(", ");
@@ -205,27 +203,27 @@ std::string repr(const std::map<K, V>& m) {
 template<class ...T, int... I>
 std::string repr_tuple_impl(std::tuple<T...> t, index_seq<I...>) {
     std::string buf = "tuple(";
-    buf.append(repr(std::get<I>()...));
+    buf.append(repr(std::get<I>(t)...));
     buf.push_back(')');
     return buf;
 }
 
 template<class ...T>
 std::string repr(std::tuple<T...> t) {
-    return repr_tuple_impl(t, make_seq<sizeof...(T)>{});
+    return repr_tuple_impl(t, make_seq<sizeof...(T)-1>{});
 }
 
 template<class A, class R>
 auto tocharptr(A a) -> R;
 
 template<>
-auto tocharptr(std::string a)
+auto tocharptr(const std::string& a)
 -> const char* {
     return a.c_str();
 };
 
 template<class V>
-auto tocharptr(std::vector<V> a)
+auto tocharptr(const std::vector<V>& a)
 -> const char* {
     return repr(a).c_str();
 };
@@ -286,7 +284,7 @@ std::string unicode(std::vector<uint8_t> src, std::string encoding)
 std::string ltrim(const std::string& src)
 {
     size_t pos = 0;
-    for (int i=0; i < src.size(); i++) {
+    for (int i=0; i < (int)src.size(); i++) {
         char c = src[i];
         if (c!=' '&&c!='\t'&&c!='\r'&&c!='\n') {
             pos = i;

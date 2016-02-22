@@ -13,11 +13,12 @@
 // No part of the content of this file was derived from the works of David Giffin.
 
 #include <vector>
+#include <array>
 #include <map>
 
 #include "./biffh.h"
 // unpack_unicode, unpack_string,
-//    upkbits, upkbitsL, fprintf,
+//    upkbits, upkbitsL, pprint,
 //    FUN, FDT, FNU, FGE, FTX, XL_CELL_NUMBER, XL_CELL_DATE, XL_CELL_TEXT,
 //    XL_FORMAT, XL_FORMAT2,
 //    XLRDError
@@ -25,6 +26,8 @@
 
 namespace xlrd {
 namespace formatting {
+
+USING_FUNC(utils, pprint);
 
 const auto& FUN = biffh::FUN;
 const auto& FDT = biffh::FDT;
@@ -34,21 +37,9 @@ const auto& FTX = biffh::FTX;
 const auto& XL_CELL_NUMBER = biffh::XL_CELL_NUMBER;
 const auto& XL_CELL_DATE = biffh::XL_CELL_DATE;
 
-/*
-from __future__ import print_function
+const auto& DEBUG = biffh::DEBUG;
 
-DEBUG = 0
-import re
-from struct import unpack
-from .timemachine import *
-from .biffh import BaseObject, unpack_unicode, unpack_string, \
-    upkbits, upkbitsL, fprintf, \
-    FUN, FDT, FNU, FGE, FTX, XL_CELL_NUMBER, XL_CELL_DATE, XL_CELL_TEXT, \
-    XL_FORMAT, XL_FORMAT2, \
-    XLRDError
-*/
-
-static std::map<int, int>
+const MAP<int, int>
 _cellty_from_fmtty = {
     {FNU, XL_CELL_NUMBER},
     {FUN, XL_CELL_NUMBER},
@@ -57,66 +48,66 @@ _cellty_from_fmtty = {
     {FTX, XL_CELL_NUMBER}, // Yes, a number can be formatted as text.
 };
 
-#define T std::make_tuple
-static std::vector<std::tuple<int, int, int>>
+using color = std::array<uint8_t, 3>;
+const std::array<uint8_t, 3> nullcolor = {{0, 0, 0}};
+
+const std::vector<color>
 excel_default_palette_b5 = {
-    T(  0,   0,   0), T(255, 255, 255), T(255,   0,   0), T(  0, 255,   0),
-    T(  0,   0, 255), T(255, 255,   0), T(255,   0, 255), T(  0, 255, 255),
-    T(128,   0,   0), T(  0, 128,   0), T(  0,   0, 128), T(128, 128,   0),
-    T(128,   0, 128), T(  0, 128, 128), T(192, 192, 192), T(128, 128, 128),
-    T(153, 153, 255), T(153,  51, 102), T(255, 255, 204), T(204, 255, 255),
-    T(102,   0, 102), T(255, 128, 128), T(  0, 102, 204), T(204, 204, 255),
-    T(  0,   0, 128), T(255,   0, 255), T(255, 255,   0), T(  0, 255, 255),
-    T(128,   0, 128), T(128,   0,   0), T(  0, 128, 128), T(  0,   0, 255),
-    T(  0, 204, 255), T(204, 255, 255), T(204, 255, 204), T(255, 255, 153),
-    T(153, 204, 255), T(255, 153, 204), T(204, 153, 255), T(227, 227, 227),
-    T( 51, 102, 255), T( 51, 204, 204), T(153, 204,   0), T(255, 204,   0),
-    T(255, 153,   0), T(255, 102,   0), T(102, 102, 153), T(150, 150, 150),
-    T(  0,  51, 102), T( 51, 153, 102), T(  0,  51,   0), T( 51,  51,   0),
-    T(153,  51,   0), T(153,  51, 102), T( 51,  51, 153), T( 51,  51,  51),
+    {{  0,   0,   0}}, {{255, 255, 255}}, {{255,   0,   0}}, {{  0, 255,   0}},
+    {{  0,   0, 255}}, {{255, 255,   0}}, {{255,   0, 255}}, {{  0, 255, 255}},
+    {{128,   0,   0}}, {{  0, 128,   0}}, {{  0,   0, 128}}, {{128, 128,   0}},
+    {{128,   0, 128}}, {{  0, 128, 128}}, {{192, 192, 192}}, {{128, 128, 128}},
+    {{153, 153, 255}}, {{153,  51, 102}}, {{255, 255, 204}}, {{204, 255, 255}},
+    {{102,   0, 102}}, {{255, 128, 128}}, {{  0, 102, 204}}, {{204, 204, 255}},
+    {{  0,   0, 128}}, {{255,   0, 255}}, {{255, 255,   0}}, {{  0, 255, 255}},
+    {{128,   0, 128}}, {{128,   0,   0}}, {{  0, 128, 128}}, {{  0,   0, 255}},
+    {{  0, 204, 255}}, {{204, 255, 255}}, {{204, 255, 204}}, {{255, 255, 153}},
+    {{153, 204, 255}}, {{255, 153, 204}}, {{204, 153, 255}}, {{227, 227, 227}},
+    {{ 51, 102, 255}}, {{ 51, 204, 204}}, {{153, 204,   0}}, {{255, 204,   0}},
+    {{255, 153,   0}}, {{255, 102,   0}}, {{102, 102, 153}}, {{150, 150, 150}},
+    {{  0,  51, 102}}, {{ 51, 153, 102}}, {{  0,  51,   0}}, {{ 51,  51,   0}},
+    {{153,  51,   0}}, {{153,  51, 102}}, {{ 51,  51, 153}}, {{ 51,  51,  51}},
 };
-#undef T
 
 // excel_default_palette_b2 = excel_default_palette_b5[:16]
-static std::vector<std::tuple<int, int, int>>
+decltype(excel_default_palette_b5)
 excel_default_palette_b2 = utils::slice(excel_default_palette_b5, 0, 16);
 
 
 // Following table borrowed from Gnumeric 1.4 source.
 // Checked against OOo docs and MS docs.
-#define T std::make_tuple
-std::vector<std::tuple<uint8_t, uint8_t, uint8_t>>
+decltype(excel_default_palette_b5)
 excel_default_palette_b8 = { // (red, green, blue)
-    T(  0,  0,  0), T(255,255,255), T(255,  0,  0), T(  0,255,  0), // 0
-    T(  0,  0,255), T(255,255,  0), T(255,  0,255), T(  0,255,255), // 4
-    T(128,  0,  0), T(  0,128,  0), T(  0,  0,128), T(128,128,  0), // 8
-    T(128,  0,128), T(  0,128,128), T(192,192,192), T(128,128,128), // 12
-    T(153,153,255), T(153, 51,102), T(255,255,204), T(204,255,255), // 16
-    T(102,  0,102), T(255,128,128), T(  0,102,204), T(204,204,255), // 20
-    T(  0,  0,128), T(255,  0,255), T(255,255,  0), T(  0,255,255), // 24
-    T(128,  0,128), T(128,  0,  0), T(  0,128,128), T(  0,  0,255), // 28
-    T(  0,204,255), T(204,255,255), T(204,255,204), T(255,255,153), // 32
-    T(153,204,255), T(255,153,204), T(204,153,255), T(255,204,153), // 36
-    T( 51,102,255), T( 51,204,204), T(153,204,  0), T(255,204,  0), // 40
-    T(255,153,  0), T(255,102,  0), T(102,102,153), T(150,150,150), // 44
-    T(  0, 51,102), T( 51,153,102), T(  0, 51,  0), T( 51, 51,  0), // 48
-    T(153, 51,  0), T(153, 51,102), T( 51, 51,153), T( 51, 51, 51), // 52
+    {{  0,  0,  0}}, {{255,255,255}}, {{255,  0,  0}}, {{  0,255,  0}}, // 0
+    {{  0,  0,255}}, {{255,255,  0}}, {{255,  0,255}}, {{  0,255,255}}, // 4
+    {{128,  0,  0}}, {{  0,128,  0}}, {{  0,  0,128}}, {{128,128,  0}}, // 8
+    {{128,  0,128}}, {{  0,128,128}}, {{192,192,192}}, {{128,128,128}}, // 12
+    {{153,153,255}}, {{153, 51,102}}, {{255,255,204}}, {{204,255,255}}, // 16
+    {{102,  0,102}}, {{255,128,128}}, {{  0,102,204}}, {{204,204,255}}, // 20
+    {{  0,  0,128}}, {{255,  0,255}}, {{255,255,  0}}, {{  0,255,255}}, // 24
+    {{128,  0,128}}, {{128,  0,  0}}, {{  0,128,128}}, {{  0,  0,255}}, // 28
+    {{  0,204,255}}, {{204,255,255}}, {{204,255,204}}, {{255,255,153}}, // 32
+    {{153,204,255}}, {{255,153,204}}, {{204,153,255}}, {{255,204,153}}, // 36
+    {{ 51,102,255}}, {{ 51,204,204}}, {{153,204,  0}}, {{255,204,  0}}, // 40
+    {{255,153,  0}}, {{255,102,  0}}, {{102,102,153}}, {{150,150,150}}, // 44
+    {{  0, 51,102}}, {{ 51,153,102}}, {{  0, 51,  0}}, {{ 51, 51,  0}}, // 48
+    {{153, 51,  0}}, {{153, 51,102}}, {{ 51, 51,153}}, {{ 51, 51, 51}}, // 52
 };
-#undef T
 
-/*
+
+const MAP<int, std::vector<color>>
 default_palette = {
-    80: excel_default_palette_b8,
-    70: excel_default_palette_b5,
-    50: excel_default_palette_b5,
-    45: excel_default_palette_b2,
-    40: excel_default_palette_b2,
-    30: excel_default_palette_b2,
-    21: excel_default_palette_b2,
-    20: excel_default_palette_b2,
-    }
+    {80, excel_default_palette_b8},
+    {70, excel_default_palette_b5},
+    {50, excel_default_palette_b5},
+    {45, excel_default_palette_b2},
+    {40, excel_default_palette_b2},
+    {30, excel_default_palette_b2},
+    {21, excel_default_palette_b2},
+    {20, excel_default_palette_b2},
+};
 
-"""
+/*"""
 00H = Normal
 01H = RowLevel_lv (see next field)
 02H = ColLevel_lv (see next field)
@@ -127,8 +118,10 @@ default_palette = {
 07H = Currency [0] (BIFF4-BIFF8)
 08H = Hyperlink (BIFF8)
 09H = Followed Hyperlink (BIFF8)
-"""
-built_in_style_names = [
+"""*/
+
+const std::vector<std::string>
+built_in_style_names = {
     "Normal",
     "RowLevel_",
     "ColLevel_",
@@ -139,32 +132,109 @@ built_in_style_names = [
     "Currency [0]",
     "Hyperlink",
     "Followed Hyperlink",
-    ]
+};
 
-def initialise_colour_map(book):
-    book.colour_map = {}
-    book.colour_indexes_used = {}
-    if not book.formatting_info:
-        return
+// === "Number formats" ===
+
+////
+// "Number format" information from a FORMAT record.
+// <br /> -- New in version 0.6.1
+class Format
+{
+public:
+    ////
+    // The key into Book.format_map
+    int format_key = 0;
+    ////
+    // A classification that has been inferred from the format string.
+    // Currently, this is used only to distinguish between numbers and dates.
+    // <br />Values:
+    // <br />FUN = 0 // unknown
+    // <br />FDT = 1 // date
+    // <br />FNU = 2 // number
+    // <br />FGE = 3 // general
+    // <br />FTX = 4 // text
+    int type = FUN;
+    ////
+    // The format string
+    std::string format_str;
+    int xf_index;
+    int is_style;
+    int parent_style_index;
+    int font_index;
+
+    int _alignment_flag;
+    int _background_flag;
+    int _border_flag;
+    int _protection_flag;
+    int _format_flag;
+    int _font_flag;
+
+    Format() {};
+
+    Format(int format_key, int ty, std::string format_str) {
+        this->format_key = format_key;
+        this->type = ty;
+        this->format_str = format_str;
+
+        this->xf_index = 0;
+        this->is_style = 0;
+        this->parent_style_index = 0;
+    }
+};
+
+class FormattingDelegate
+{
+public:
+    int _xf_epilogue_done;
+    std::vector<Format> xf_list;
+    int verbosity;
+    MAP<int, Format> format_map;
+    MAP<int, int> _xf_index_to_xl_type_map;
+    int formatting_info;
+    int biff_version;
+    MAP<int, color> colour_map;
+    MAP<int, int> colour_indexes_used;
+    
+    virtual int get_biff_version() {
+    	  throw std::logic_error("NotImplemented");
+    	  return 0;
+    }
+};
+
+inline void
+initialise_colour_map(FormattingDelegate* book) {
+    book->colour_map = {};
+    book->colour_indexes_used = {};
+    if (!book->formatting_info) {
+        return;
+    }
     // Add the 8 invariant colours
-    for i in xrange(8):
-        book.colour_map[i] = excel_default_palette_b8[i]
+    for (int i=0; i < 8; ++i) {
+        book->colour_map[i] = excel_default_palette_b8.at(i);
+    }
     // Add the default palette depending on the version
-    dpal = default_palette[book.biff_version]
-    ndpal = len(dpal)
-    for i in xrange(ndpal):
-        book.colour_map[i+8] = dpal[i]
+    auto& dpal = default_palette.at(book->biff_version);
+    int ndpal = dpal.size();
+    for (int i=0; i < ndpal; ++i) {
+        book->colour_map[i+8] = dpal.at(i);
+    }
     // Add the specials -- None means the RGB value is not known
     // System window text colour for border lines
-    book.colour_map[ndpal+8] = None
+    book->colour_map[ndpal+8] = nullcolor;
     // System window background colour for pattern background
-    book.colour_map[ndpal+8+1] = None //
-    for ci in (
-        0x51, // System ToolTip text colour (used in note objects)
-        0x7FFF, // 32767, system window text colour for fonts
-        ):
-        book.colour_map[ci] = None
+    book->colour_map[ndpal+8+1] = nullcolor; //
 
+    // for ci in (
+    //     0x51, // System ToolTip text colour (used in note objects)
+    //     0x7FFF, // 32767, system window text colour for fonts
+    //     ):
+    //     book->colour_map[ci] = None
+    book->colour_map[0x51] = nullcolor; // System ToolTip text colour (used in note objects)
+    book->colour_map[0x7FFF] = nullcolor; // 32767, system window text colour for fonts
+}
+
+/*
 def nearest_colour_index(colour_map, rgb, debug=0):
     // General purpose function. Uses Euclidean distance.
     // So far used only for pre-BIFF8 WINDOW2 record.
@@ -184,7 +254,7 @@ def nearest_colour_index(colour_map, rgb, debug=0):
             if metric == 0:
                 break
     if 0 and debug:
-        print("nearest_colour_index for %r is %r -> %r; best_metric is %d" \
+        print("nearest_colour_index for %s is %s -> %s; best_metric is %d" \
             % (rgb, best_colourx, colour_map[best_colourx], best_metric))
     return best_colourx
 
@@ -198,16 +268,18 @@ class EqNeAttrs(object):
 
     def __ne__(self, other):
         return self.__dict__ != other.__dict__
-
+*/
 ////
 // An Excel "font" contains the details of not only what is normally
 // considered a font, but also several other display attributes.
 // Items correspond to those in the Excel UI's Format/Cells/Font tab.
 // <br /> -- New in version 0.6.1
-class Font(BaseObject, EqNeAttrs):
+class Font
+{
+public:
     ////
     // 1 = Characters are bold. Redundant; see "weight" attribute.
-    bold = 0
+    int bold = 0;
     ////
     // Values: 0 = ANSI Latin, 1 = System default, 2 = Symbol,
     // 77 = Apple Roman,
@@ -226,14 +298,14 @@ class Font(BaseObject, EqNeAttrs):
     // 222 = ANSI Thai,
     // 238 = ANSI Latin II (Central European),
     // 255 = OEM Latin I
-    character_set = 0
+    int character_set = 0;
     ////
     // An explanation of "colour index" is given in the Formatting
     // section at the start of this document.
-    colour_index = 0
+    int colour_index = 0;
     ////
     // 1 = Superscript, 2 = Subscript.
-    escapement = 0
+    int escapement = 0;
     ////
     // 0 = None (unknown or don't care)<br />
     // 1 = Roman (variable width, serifed)<br />
@@ -241,56 +313,60 @@ class Font(BaseObject, EqNeAttrs):
     // 3 = Modern (fixed width, serifed or sans-serifed)<br />
     // 4 = Script (cursive)<br />
     // 5 = Decorative (specialised, for example Old English, Fraktur)
-    family = 0
+    int family = 0;
     ////
     // The 0-based index used to refer to this Font() instance.
     // Note that index 4 is never used; xlrd supplies a dummy place-holder.
-    font_index = 0
+    int font_index = 0;
     ////
     // Height of the font (in twips). A twip = 1/20 of a point.
-    height = 0
+    int height = 0;
     ////
     // 1 = Characters are italic.
-    italic = 0
+    int italic = 0;
     ////
     // The name of the font. Example: u"Arial"
-    name = UNICODE_LITERAL("")
+    std::string name = "";
     ////
     // 1 = Characters are struck out.
-    struck_out = 0
+    int struck_out = 0;
     ////
     // 0 = None<br />
     // 1 = Single;  0x21 (33) = Single accounting<br />
     // 2 = Double;  0x22 (34) = Double accounting
-    underline_type = 0
+    int underline_type = 0;
     ////
     // 1 = Characters are underlined. Redundant; see "underline_type" attribute.
-    underlined = 0
+    int underlined = 0;
     ////
     // Font weight (100-1000). Standard values are 400 for normal text
     // and 700 for bold text.
-    weight = 400
+    int weight = 400;
     ////
     // 1 = Font is outline style (Macintosh only)
-    outline = 0
+    int outline = 0;
     ////
     // 1 = Font is shadow style (Macintosh only)
-    shadow = 0
+    int shadow = 0;
 
     // No methods ...
+};
 
-def handle_efont(book, data): // BIFF2 only
-    if not book.formatting_info:
-        return
-    book.font_list[-1].colour_index = unpack('<H', data)[0]
+inline void
+handle_efont(FormattingDelegate* book, data) { // BIFF2 only
+    if (not book.formatting_info)
+        return;
+    book->font_list[-1].colour_index = unpack('<H', data)[0];
+}
 
-def handle_font(book, data):
+inline void
+handle_font(book, data) {
     if not book.formatting_info:
         return
     if not book.encoding:
         book.derive_encoding()
     blah = DEBUG or book.verbosity >= 2
-    bv = book.biff_version
+    int bv = book->get_biff_version();
     k = len(book.font_list)
     if k == 4:
         f = Font()
@@ -348,44 +424,13 @@ def handle_font(book, data):
         f.underline_type = f.underlined // None or Single
         f.family = 0 // Unknown / don't care
         f.character_set = 1 // System default (0 means "ANSI Latin")
-    if blah:
+    if (blah) {
         f.dump(
-            book.logfile,
             header="--- handle_font: font[%d] ---" % f.font_index,
             footer="-------------------",
-            )
-*/
-// === "Number formats" ===
-
-////
-// "Number format" information from a FORMAT record.
-// <br /> -- New in version 0.6.1
-class Format
-{
-public:
-    ////
-    // The key into Book.format_map
-    int format_key = 0;
-    ////
-    // A classification that has been inferred from the format string.
-    // Currently, this is used only to distinguish between numbers and dates.
-    // <br />Values:
-    // <br />FUN = 0 // unknown
-    // <br />FDT = 1 // date
-    // <br />FNU = 2 // number
-    // <br />FGE = 3 // general
-    // <br />FTX = 4 // text
-    int type = FUN;
-    ////
-    // The format string
-    std::string format_str;
-
-    Format(int format_key, int ty, std::string format_str) {
-        this->format_key = format_key;
-        this->type = ty;
-        this->format_str = format_str;
+            );
     }
-};
+}
 
 /*
 std_format_strings = {
@@ -539,13 +584,13 @@ def is_date_format_string(book, fmt):
         return False
     if date_count:
         if book.verbosity:
-            fprintf(book.logfile,
-                'WARNING *** is_date_format: ambiguous d=%d n=%d fmt=%r\n',
+            pprint(book.logfile,
+                'WARNING *** is_date_format: ambiguous d=%d n=%d fmt=%s\n',
                 date_count, num_count, fmt)
     elif not got_sep:
         if book.verbosity:
-            fprintf(book.logfile,
-                "WARNING *** format %r produces constant result\n",
+            pprint(book.logfile,
+                "WARNING *** format %s produces constant result\n",
                 fmt)
     return date_count > num_count
 
@@ -570,8 +615,8 @@ def handle_format(self, data, rectype=XL_FORMAT):
         unistrg = unpack_string(data, strpos, self.encoding, lenlen=1)
     blah = DEBUG or self.verbosity >= 3
     if blah:
-        fprintf(self.logfile,
-            "FORMAT: count=%d fmtkey=0x%04x (%d) s=%r\n",
+        pprint(
+            "FORMAT: count=%d fmtkey=0x%04x (%d) s=%s\n",
             self.actualfmtcount, fmtkey, fmtkey, unistrg)
     is_date_s = self.is_date_format_string(unistrg)
     ty = [FGE, FDT][is_date_s]
@@ -584,17 +629,17 @@ def handle_format(self, data, rectype=XL_FORMAT):
         is_date_c = std_ty == FDT
         if self.verbosity and 0 < fmtkey < 50 and (is_date_c ^ is_date_s):
             DEBUG = 2
-            fprintf(self.logfile,
+            pprint(
                 "WARNING *** Conflict between "
-                "std format key %d and its format string %r\n",
+                "std format key %d and its format string %s\n",
                 fmtkey, unistrg)
     if DEBUG == 2:
-        fprintf(self.logfile,
-            "ty: %d; is_date_c: %r; is_date_s: %r; fmt_strg: %r",
+        pprint(
+            "ty: %d; is_date_c: %s; is_date_s: %s; fmt_strg: %s",
             ty, is_date_c, is_date_s, unistrg)
     fmtobj = Format(fmtkey, ty, unistrg)
     if blah:
-        fmtobj.dump(self.logfile,
+        fmtobj.dump(
             header="--- handle_format [%d] ---" % (self.actualfmtcount-1, ))
     self.format_map[fmtkey] = fmtobj
     self.format_list.append(fmtobj)
@@ -609,11 +654,11 @@ def handle_palette(book, data):
     expected_n_colours = (16, 56)[book.biff_version >= 50]
     if ((DEBUG or book.verbosity >= 1)
     and n_colours != expected_n_colours):
-        fprintf(book.logfile,
+        pprint(book.logfile,
             "NOTE *** Expected %d colours in PALETTE record, found %d\n",
             expected_n_colours, n_colours)
     elif blah:
-        fprintf(book.logfile,
+        pprint(book.logfile,
             "PALETTE record with %d colours\n", n_colours)
     fmt = '<xx%di' % n_colours // use i to avoid long integers
     expected_size = 4 * n_colours + 2
@@ -636,7 +681,7 @@ def handle_palette(book, data):
         book.colour_map[8+i] = new_rgb
         if blah:
             if new_rgb != old_rgb:
-                print("%2d: %r -> %r" % (i, old_rgb, new_rgb), file=book.logfile)
+                print("%2d: %s -> %s" % (i, old_rgb, new_rgb), file=book.logfile)
 
 def palette_epilogue(book):
     // Check colour indexes in fonts etc.
@@ -652,11 +697,11 @@ def palette_epilogue(book):
             book.colour_indexes_used[cx] = 1
         elif book.verbosity:
             print("Size of colour table:", len(book.colour_map), file=book.logfile)
-            fprintf(book.logfile, "*** Font //%d (%r): colour index 0x%04x is unknown\n",
+            pprint(book.logfile, "*** Font //%d (%s): colour index 0x%04x is unknown\n",
                 font.font_index, font.name, cx)
     if book.verbosity >= 1:
         used = sorted(book.colour_indexes_used.keys())
-        print("\nColour indexes used:\n%r\n" % used, file=book.logfile)
+        print("\nColour indexes used:\n%s\n" % used, file=book.logfile)
 
 def handle_style(book, data):
     if not book.formatting_info:
@@ -699,7 +744,7 @@ def handle_style(book, data):
             print("WARNING *** A user-defined style has a zero-length name", file=book.logfile)
     book.style_name_map[name] = (built_in, xf_index)
     if blah:
-        fprintf(book.logfile, "STYLE: built_in=%d xf_index=%d built_in_id=%d level=%d name=%r\n",
+        pprint(book.logfile, "STYLE: built_in=%d xf_index=%d built_in_id=%d level=%d name=%s\n",
             built_in, xf_index, built_in_id, level, name)
 
 def check_colour_indexes_in_obj(book, obj, orig_index):
@@ -979,7 +1024,7 @@ def handle_xf(self, data):
     self.xfcount += 1
     if blah:
         xf.dump(
-            self.logfile,
+            
             header="--- handle_xf: xf[%d] ---" % xf.xf_index,
             footer=" ",
         )
@@ -994,117 +1039,130 @@ def handle_xf(self, data):
     if self.formatting_info:
         if self.verbosity and xf.is_style and xf.parent_style_index != 0x0FFF:
             msg = "WARNING *** XF[%d] is a style XF but parent_style_index is 0x%04x, not 0x0fff\n"
-            fprintf(self.logfile, msg, xf.xf_index, xf.parent_style_index)
+            pprint( msg, xf.xf_index, xf.parent_style_index)
         check_colour_indexes_in_obj(self, xf, xf.xf_index)
     if xf.format_key not in self.format_map:
         msg = "WARNING *** XF[%d] unknown (raw) format key (%d, 0x%04x)\n"
         if self.verbosity:
-            fprintf(self.logfile, msg,
+            pprint( msg,
                 xf.xf_index, xf.format_key, xf.format_key)
         xf.format_key = 0
 */
 
-class FormattingDelegate
-{
-public:
-    int _xf_epilogue_done;
-    std::vector<Format> xf_list;
-};
+// void check_same(book_arg, xf_arg, parent_arg, attr) {
+//     // the _arg caper is to avoid a Warning msg from Python 2.1 :-(
+//     if getattr(xf_arg, attr) != getattr(parent_arg, attr):
+//         pprint(book_arg.logfile,
+//             "NOTE !!! XF[%d] parent[%d] %s different\n",
+//             xf_arg.xf_index, parent_arg.xf_index, attr)
+// }
 
 void xf_epilogue(FormattingDelegate* self) {
     // self is a Book instance.
     self->_xf_epilogue_done = 1;
     int num_xfs = self->xf_list.size();
-    num_xfs += 0;
-    /*
-    blah = DEBUG or self.verbosity >= 3
-    blah1 = DEBUG or self.verbosity >= 1
-    if blah:
-        fprintf(self.logfile, "xf_epilogue called ...\n")
+    bool blah = DEBUG || self->verbosity >= 3;
+    bool blah1 = DEBUG or self->verbosity >= 1;
+    if (blah) {
+        pprint("xf_epilogue called ...\n");
+    }
 
-    def check_same(book_arg, xf_arg, parent_arg, attr):
-        // the _arg caper is to avoid a Warning msg from Python 2.1 :-(
-        if getattr(xf_arg, attr) != getattr(parent_arg, attr):
-            fprintf(book_arg.logfile,
-                "NOTE !!! XF[%d] parent[%d] %s different\n",
-                xf_arg.xf_index, parent_arg.xf_index, attr)
+    for (int xfx = 0; xfx < num_xfs; ++xfx) {
+        auto& xf = self->xf_list[xfx];
 
-    for xfx in xrange(num_xfs):
-        xf = self.xf_list[xfx]
-
-        try:
-            fmt = self.format_map[xf.format_key]
-            cellty = _cellty_from_fmtty[fmt.type]
-        except KeyError:
-            cellty = XL_CELL_TEXT
-        self._xf_index_to_xl_type_map[xf.xf_index] = cellty
+        Format fmt;
+        int cellty;
+        try {
+            fmt = utils::find_orerror(self->format_map, xf.format_key);
+            cellty = int(utils::find_orerror(_cellty_from_fmtty, fmt.type));
+        } catch(utils::KeyError exc) {
+            cellty = biffh::XL_CELL_TEXT;
+        }
+        self->_xf_index_to_xl_type_map[xf.xf_index] = cellty;
         // Now for some assertions etc
-        if not self.formatting_info:
-            continue
-        if xf.is_style:
-            continue
-        if not(0 <= xf.parent_style_index < num_xfs):
-            if blah1:
-                fprintf(self.logfile,
+        if (!self->formatting_info) {
+            continue;
+        }
+        if (xf.is_style) {
+            continue;
+        }
+        if (!(0 <= xf.parent_style_index && xf.parent_style_index < num_xfs)) {
+            if (blah1) {
+                pprint(
                     "WARNING *** XF[%d]: is_style=%d but parent_style_index=%d\n",
-                    xf.xf_index, xf.is_style, xf.parent_style_index)
+                    xf.xf_index, xf.is_style, xf.parent_style_index);
+            }
             // make it conform
-            xf.parent_style_index = 0
-        if self.biff_version >= 30:
-            if blah1:
-                if xf.parent_style_index == xf.xf_index:
-                    fprintf(self.logfile,
+            xf.parent_style_index = 0;
+        }
+        if (self->biff_version >= 30) {
+            if (blah1) {
+                if (xf.parent_style_index == xf.xf_index) {
+                    pprint(
                         "NOTE !!! XF[%d]: parent_style_index is also %d\n",
-                        xf.xf_index, xf.parent_style_index)
-                elif not self.xf_list[xf.parent_style_index].is_style:
-                    fprintf(self.logfile,
+                        xf.xf_index, xf.parent_style_index);
+                } else if (! self->xf_list[xf.parent_style_index].is_style) {
+                    pprint(
                         "NOTE !!! XF[%d]: parent_style_index is %d; style flag not set\n",
-                        xf.xf_index, xf.parent_style_index)                
-            if blah1 and xf.parent_style_index > xf.xf_index:
-                fprintf(self.logfile,
+                        xf.xf_index, xf.parent_style_index);
+                }
+            }
+            if (blah1 and xf.parent_style_index > xf.xf_index) {
+                pprint(
                     "NOTE !!! XF[%d]: parent_style_index is %d; out of order?\n",
-                    xf.xf_index, xf.parent_style_index)
-            parent = self.xf_list[xf.parent_style_index]
-            if not xf._alignment_flag and not parent._alignment_flag:
-                if blah1: check_same(self, xf, parent, 'alignment')
-            if not xf._background_flag and not parent._background_flag:
-                if blah1: check_same(self, xf, parent, 'background')
-            if not xf._border_flag and not parent._border_flag:
-                if blah1: check_same(self, xf, parent, 'border')
-            if not xf._protection_flag and not parent._protection_flag:
-                if blah1: check_same(self, xf, parent, 'protection')
-            if not xf._format_flag and not parent._format_flag:
-                if blah1 and xf.format_key != parent.format_key:
-                    fprintf(self.logfile,
-                        "NOTE !!! XF[%d] fmtk=%d, parent[%d] fmtk=%r\n%r / %r\n",
+                    xf.xf_index, xf.parent_style_index);
+            }
+            auto& parent = self->xf_list[xf.parent_style_index];
+            if (not xf._alignment_flag and not parent._alignment_flag) {
+                // if (blah1) { check_same(self, xf, parent, 'alignment');}
+            }
+            if (!xf._background_flag and not parent._background_flag) {
+                // if (blah1) { check_same(self, xf, parent, 'background'); }
+            }
+            if (!xf._border_flag and not parent._border_flag) {
+                // if (blah1) { check_same(self, xf, parent, 'border'); }
+            }
+            if (!xf._protection_flag and not parent._protection_flag) {
+                // if (blah1) { check_same(self, xf, parent, 'protection'); }
+            }
+            if (!xf._format_flag and not parent._format_flag) {
+                if (blah1 and xf.format_key != parent.format_key) {
+                    pprint(
+                        "NOTE !!! XF[%d] fmtk=%d, parent[%d] fmtk=%s\n%s / %s\n",
                         xf.xf_index, xf.format_key, parent.xf_index, parent.format_key,
-                        self.format_map[xf.format_key].format_str,
-                        self.format_map[parent.format_key].format_str)
-            if not xf._font_flag and not parent._font_flag:
-                if blah1 and xf.font_index != parent.font_index:
-                    fprintf(self.logfile,
-                        "NOTE !!! XF[%d] fontx=%d, parent[%d] fontx=%r\n",
-                        xf.xf_index, xf.font_index, parent.xf_index, parent.font_index)
-    */
+                        self->format_map[xf.format_key].format_str,
+                        self->format_map[parent.format_key].format_str);
+                }
+            }
+            if (not xf._font_flag and not parent._font_flag) {
+                if (blah1 and xf.font_index != parent.font_index) {
+                    pprint(
+                        "NOTE !!! XF[%d] fontx=%d, parent[%d] fontx=%s\n",
+                        xf.xf_index, xf.font_index, parent.xf_index, parent.font_index);
+                }
+            }
+        }
+    }
 }
 
-/*
-def initialise_book(book):
-    initialise_colour_map(book)
-    book._xf_epilogue_done = 0
-    methods = (
-        handle_font,
-        handle_efont,
-        handle_format,
-        is_date_format_string,
-        handle_palette,
-        palette_epilogue,
-        handle_style,
-        handle_xf,
-        xf_epilogue,
-        )
-    for method in methods:
-        setattr(book.__class__, method.__name__, method)
+
+void initialise_book(FormattingDelegate* book) {
+    initialise_colour_map(book);
+    book->_xf_epilogue_done = 0;
+    //methods = (
+    //    handle_font,
+    //    handle_efont,
+    //    handle_format,
+    //    is_date_format_string,
+    //    handle_palette,
+    //    palette_epilogue,
+    //    handle_style,
+    //    handle_xf,
+    //    xf_epilogue,
+    //    )
+    //for method in methods:
+    //    setattr(book.__class__, method.__name__, method)
+}
 
 ////
 // <p>A collection of the border-related attributes of an XF record.
@@ -1131,44 +1189,46 @@ def initialise_book(book):
 // For pictures of the line styles, refer to OOo docs s3.10 (p22)
 // "Line Styles for Cell Borders (BIFF3-BIFF8)".</p>
 // <br /> -- New in version 0.6.1
-class XFBorder(BaseObject, EqNeAttrs):
-
+class XFBorder
+{
+public:
     ////
     // The colour index for the cell's top line
-    top_colour_index = 0
+    int top_colour_index = 0;
     ////
     // The colour index for the cell's bottom line
-    bottom_colour_index = 0
+    int bottom_colour_index = 0;
     ////
     // The colour index for the cell's left line
-    left_colour_index = 0
+    int left_colour_index = 0;
     ////
     // The colour index for the cell's right line
-    right_colour_index = 0
+    int right_colour_index = 0;
     ////
     // The colour index for the cell's diagonal lines, if any
-    diag_colour_index = 0
+    int diag_colour_index = 0;
     ////
     // The line style for the cell's top line
-    top_line_style = 0
+    int top_line_style = 0;
     ////
     // The line style for the cell's bottom line
-    bottom_line_style = 0
+    int bottom_line_style = 0;
     ////
     // The line style for the cell's left line
-    left_line_style = 0
+    int left_line_style = 0;
     ////
     // The line style for the cell's right line
-    right_line_style = 0
+    int right_line_style = 0;
     ////
     // The line style for the cell's diagonal lines, if any
-    diag_line_style = 0
+    int diag_line_style = 0;
     ////
     // 1 = draw a diagonal from top left to bottom right
-    diag_down = 0
+    int diag_down = 0;
     ////
     // 1 = draw a diagonal from bottom left to top right
-    diag_up = 0
+    int diag_up = 0;
+};
 
 ////
 // A collection of the background-related attributes of an XF record.
@@ -1176,49 +1236,54 @@ class XFBorder(BaseObject, EqNeAttrs):
 // An explanation of "colour index" is given in the Formatting
 // section at the start of this document.
 // <br /> -- New in version 0.6.1
-class XFBackground(BaseObject, EqNeAttrs):
-
+class XFBackground
+{
+public:
     ////
     // See section 3.11 of the OOo docs.
-    fill_pattern = 0
+    int fill_pattern = 0;
     ////
     // See section 3.11 of the OOo docs.
-    background_colour_index = 0
+    int background_colour_index = 0;
     ////
     // See section 3.11 of the OOo docs.
-    pattern_colour_index = 0
+    int pattern_colour_index = 0;
+};
 
 ////
 // A collection of the alignment and similar attributes of an XF record.
 // Items correspond to those in the Excel UI's Format/Cells/Alignment tab.
 // <br /> -- New in version 0.6.1
 
-class XFAlignment(BaseObject, EqNeAttrs):
+class XFAlignment
+{
+public:
 
     ////
     // Values: section 6.115 (p 214) of OOo docs
-    hor_align = 0
+    int hor_align = 0;
     ////
     // Values: section 6.115 (p 215) of OOo docs
-    vert_align = 0
+    int vert_align = 0;
     ////
     // Values: section 6.115 (p 215) of OOo docs.<br />
     // Note: file versions BIFF7 and earlier use the documented
     // "orientation" attribute; this will be mapped (without loss)
     // into "rotation".
-    rotation = 0
+    int rotation = 0;
     ////
     // 1 = text is wrapped at right margin
-    text_wrapped = 0
+    int text_wrapped = 0;
     ////
     // A number in range(15).
-    indent_level = 0
+    int indent_level = 0;
     ////
     // 1 = shrink font size to fit text into cell.
-    shrink_to_fit = 0
+    int shrink_to_fit = 0;
     ////
     // 0 = according to context; 1 = left-to-right; 2 = right-to-left
-    text_direction = 0
+    int text_direction = 0;
+};
 
 ////
 // A collection of the protection-related attributes of an XF record.
@@ -1228,16 +1293,18 @@ class XFAlignment(BaseObject, EqNeAttrs):
 // This is incorrect; the bit is used in determining which bundles to use.
 // <br /> -- New in version 0.6.1
 
-class XFProtection(BaseObject, EqNeAttrs):
-
+class XFProtection
+{
+public:
     ////
     // 1 = Cell is prevented from being changed, moved, resized, or deleted
     // (only if the sheet is protected).
-    cell_locked = 0
+    int cell_locked = 0;
     ////
     // 1 = Hide formula so that it doesn't appear in the formula bar when
     // the cell is selected (only if the sheet is protected).
-    formula_hidden = 0
+    int formula_hidden = 0;
+};
 
 ////
 // eXtended Formatting information for cells, rows, columns and styles.
@@ -1256,40 +1323,41 @@ class XFProtection(BaseObject, EqNeAttrs):
 // have had the above inheritance mechanism applied.
 // </p>
 
-class XF(BaseObject):
-
+class XF
+{
+public:
     ////
     // 0 = cell XF, 1 = style XF
-    is_style = 0
+    int is_style = 0;
     ////
     // cell XF: Index into Book.xf_list
     // of this XF's style XF<br />
     // style XF: 0xFFF
-    parent_style_index = 0
+    int parent_style_index = 0;
     ////
     //
-    _format_flag = 0
+    int _format_flag = 0;
     ////
     //
-    _font_flag = 0
+    int _font_flag = 0;
     ////
     //
-    _alignment_flag = 0
+    int _alignment_flag = 0;
     ////
     //
-    _border_flag = 0
+    int _border_flag = 0;
     ////
     //
-    _background_flag = 0
+    int _background_flag = 0;
     ////
     // &nbsp;
-    _protection_flag = 0
+    int _protection_flag = 0;
     ////
     // Index into Book.xf_list
-    xf_index = 0
+    int xf_index = 0;
     ////
     // Index into Book.font_list
-    font_index = 0
+    int font_index = 0;
     ////
     // Key into Book.format_map
     // <p>
@@ -1300,20 +1368,21 @@ class XF(BaseObject):
     // is the same as the index into format_list, and <i>only</i>
     // if the index is less than 164.
     // </p>
-    format_key = 0
+    int format_key = 0;
     ////
     // An instance of an XFProtection object.
-    protection = None
+    XFProtection* protection;
     ////
     // An instance of an XFBackground object.
-    background = None
+    XFBackground* background;
     ////
     // An instance of an XFAlignment object.
-    alignment = None
+    XFAlignment* alignment;
     ////
     // An instance of an XFBorder object.
-    border = None
-*/
+    XFBorder* border;
+};
+
 
 }
 }

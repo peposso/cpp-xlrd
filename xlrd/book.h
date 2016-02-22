@@ -37,7 +37,7 @@ namespace xlrd {
 namespace book {
 
 namespace strutil = utils::str;
-template<class...A> std::string format(A...a) {return strutil::format(a...);};
+USING_UTILS_PP;
 
 using Operand = formula::Operand;
 using Sheet = sheet::Sheet;
@@ -90,7 +90,7 @@ _code_from_builtin_name = {
 
 class Book;
 
-class Name {
+class Name: public formula::FormulaNameDelegate {
 public:
     Book* book;
 
@@ -259,7 +259,7 @@ public:
     ////
     // List containing a Name object for each NAME record in the workbook.
     // <br />  -- New in version 0.6.0
-    std::vector<std::string> name_obj_list;
+    std::vector<Name> name_obj_list;
 
     ////
     // An integer denoting the character set used for strings in this file.
@@ -281,7 +281,7 @@ public:
     // This information may give a clue to the correct encoding for an unknown codepage.
     // For a long list of observed values, refer to the OpenOffice.org documentation for
     // the COUNTRY record.
-    std::tuple<int, int> countries;  // = (0, 0)
+    std::array<int, 2> countries;  // = (0, 0)
 
     ////
     // What (if anything) is recorded as the name of the last user to save the file.
@@ -422,6 +422,7 @@ public:
     int ragged_rows = 0;
     std::map<int, int> _xf_index_to_xl_type_map;
     int base;
+    int _position;
     std::vector<uint8_t> filestr;
     std::vector<uint8_t> mem;
     size_t stream_len;
@@ -522,7 +523,7 @@ public:
         }
         this->_position = this->base;
         if (DEBUG) {
-            utils::printf("mem: %s, base: %d, len: %d", this->mem, this->base, this->stream_len);
+            pprint("mem: %s, base: %d, len: %d", this->mem, this->base, this->stream_len);
         }
     }
 
@@ -535,13 +536,13 @@ public:
     inline
     std::tuple<int, int, std::vector<uint8_t>>
     get_record_parts() {
-        int pos = self._position;
-        auto& mem = self.mem;
+        int pos = this->_position;
+        auto& mem = this->mem;
         int code = utils::as_uint16(mem, pos);
         int length = utils::as_uint16(mem, pos+2);
-        pos += 4
+        pos += 4;
         auto data = utils::slice(mem, pos, pos+length);
-        self._position = pos + length;
+        this->_position = pos + length;
         return std::make_tuple(code, length, data);
     }
 
@@ -567,13 +568,13 @@ public:
             this->encoding = this->encoding_override;
         }else if (this->codepage == 0) {
             if (this->biff_version < 80) {
-                utils::printf(
+                pprint(
                     "*** No CODEPAGE record, no encoding_override: will use 'ascii'\n");
                 this->encoding = "ascii";
             } else {
                 this->codepage = 1200; // utf16le
                 if (this->verbosity >= 2) {
-                    utils::printf(
+                    pprint(
                       "*** No CODEPAGE record; assuming 1200 (utf_16_le)\n");
                 }
             }
@@ -581,14 +582,14 @@ public:
             int codepage = this->codepage;
             std::string encoding;
             if (utils::haskey(encoding_from_codepage, codepage)) {
-                encoding = encoding_from_codepage[codepage];
+                encoding = encoding_from_codepage.at(codepage);
             } else if (300 <= codepage && codepage <= 1999) {
                 encoding = format("cp%d", codepage);
             } else {
                 encoding = format("unknown_codepage_%d", codepage);
             }
             if (DEBUG or (this->verbosity and encoding != this->encoding)) {
-                printf("CODEPAGE: codepage %d -> encoding %s\n", codepage, encoding);
+                pprint("CODEPAGE: codepage %d -> encoding %s\n", codepage, encoding);
             }
             this->encoding = encoding;
         }
@@ -613,21 +614,28 @@ public:
         }
         return this->encoding;
     }
-    /*
 
-    def handle_codepage(self, data):
-        // DEBUG = 0
-        codepage = unpack('<H', data[0:2])[0]
-        self.codepage = codepage
-        self.derive_encoding()
+    inline
+    void handle_codepage(const std::vector<uint8_t>& data) {
+        int codepage = utils::as_uint16(data, 0);
+        this->codepage = codepage;
+        this->derive_encoding();
+    }
 
-    def handle_country(self, data):
-        countries = unpack('<HH', data[0:4])
-        if self.verbosity: print("Countries:", countries, file=self.logfile)
+    inline
+    void handle_country(const std::vector<uint8_t>&  data) {
+        int country0 = utils::as_uint16(data, 0);
+        int country1 = utils::as_uint16(data, 2);
+        if (self.verbosity) {
+            // pprint("Countries:%s", countries);
+        }
         // Note: in BIFF7 and earlier, country record was put (redundantly?) in each worksheet.
-        assert self.countries == (0, 0) or self.countries == countries
-        self.countries = countries
+        // ASSERT(self.countries == (0, 0) or self.countries == countries);
+        this->countries[0] = country0;
+        this->countries[1] = country1;
+    }
 
+    /*
     def handle_datemode(self, data):
         datemode = unpack('<H', data[0:2])[0]
         if DEBUG or self.verbosity:
@@ -773,7 +781,7 @@ public:
             if blah: print("    builtin: %s" % name, file=self.logfile)
         nobj.name = name
         nobj.raw_formula = data[pos:]
-        nobj.basic_formula_len = fmla_len
+        nobj.basic_formula_len = fmla_len;
         nobj.evaluated = 0
         if blah:
             nobj.dump(
@@ -992,7 +1000,7 @@ public:
             std::vector<uint8_t> data;
             std::tie(rc, length, data) = this->get_record_parts();
             if (DEBUG){
-                utils::printf("parse_globals: record code is 0x%04x", rc);
+                pprint("parse_globals: record code is 0x%04x", rc);
             }
             if (rc == biffh::XL_SST) {
                 this->handle_sst(data);
@@ -1031,7 +1039,7 @@ public:
             } else if (rc == biffh::XL_STYLE) {
                 this->handle_style(data);
             } else if ((rc & 0xff) == 9 && this->verbosity) {
-                utils::printf(
+                pprint(
                     "*** Unexpected BOF at posn %d: 0x%04x len=%d data=%s\n",
                     this->_position - length - 4, rc, length, utils::str::repr(data));
             } else if (rc == biffh::XL_EOF) {
@@ -1043,7 +1051,7 @@ public:
                 }
                 if (this->biff_version == 45) {
                     // DEBUG = 0
-                    if (DEBUG) utils::printf("global EOF: position=%d", self._position);
+                    if (DEBUG) pprint("global EOF: position=%d", self._position);
                     // if DEBUG:
                     //     pos = self._position - 4
                     //     print repr(self.mem[pos:pos+40])
@@ -1060,14 +1068,13 @@ public:
     inline
     std::vector<uint8_t>
     read(int pos, int length) {
-        auto data = utils::slice(self.mem, pos, pos+length);
+        auto data = utils::slice(this->mem, pos, pos+length);
         self._position = pos + data.size();
         return data;
     }
 
     inline
     void getbof(int rqd_stream) {
-    }
 /*
         // DEBUG = 1
         // if DEBUG: print >> self.logfile, "getbof(): position", self._position
@@ -1143,6 +1150,7 @@ public:
             % (opcode, version2, streamtype, build, year, version)
             )
 */
+    }
 };
 
 
@@ -1169,7 +1177,7 @@ Book open_workbook_xls(std::vector<uint8_t> file_contents)
         bk.biff_version = biff_version;
         if (biff_version <= 40) {
             // no workbook globals, only 1 worksheet
-            utils::printf(
+            pprint(
                 "*** WARNING: on_demand is not supported for this Excel version.\n"
                 "*** Setting on_demand to False.\n");
             bk.on_demand = false;
@@ -1178,7 +1186,7 @@ Book open_workbook_xls(std::vector<uint8_t> file_contents)
         else if (biff_version == 45) {
             // worksheet(s) embedded in global stream
             bk.parse_globals();
-            utils::printf("*** WARNING: on_demand is not supported for this Excel version.\n"
+            pprint("*** WARNING: on_demand is not supported for this Excel version.\n"
                           "*** Setting on_demand to False.\n");
             bk.on_demand = false;
         }
@@ -1190,7 +1198,7 @@ Book open_workbook_xls(std::vector<uint8_t> file_contents)
         }
         bk.nsheets = bk._sheet_list.size();
         if (biff_version == 45 && bk.nsheets > 1) {
-            utils::printf(
+            pprint(
                 "*** WARNING: Excel 4.0 workbook (.XLW) file contains %d worksheets.\n"
                 "*** Book-level data will be that of the last worksheet.\n",
                 bk.nsheets

@@ -2,11 +2,17 @@
 
 #include <algorithm>
 #include <vector>
-#include <map>
+// #include <map>
+#include <unordered_map>
 #include <iostream>
 
 #include "./utils/types.h"
 #include "./utils/str.h"
+
+#define MAP std::unordered_map
+
+#define USING_FUNC(ns, func) template<class...A> inline auto func(A...a) -> decltype(ns::func(a...)) { return ns::func(a...); }
+#define ASSERT(cond) if(!(cond)){ throw std::logic_error("assertion failed."); }
 
 namespace utils {
 using any = types::any;
@@ -22,12 +28,23 @@ int indexof(std::vector<T> vec, const T& val)
 }
 
 template<class T>
-auto slice(std::vector<T> vec, int start, int stop, int step=1)
+auto slice(const std::vector<T>& vec, int start, int stop=0, int step=1)
 -> std::vector<T>
 {
+    if (!stop) stop = vec.size();
     std::vector<T> dest;
     for (int i=start; i < stop; i += step) {
         dest.push_back(vec[i]);
+    }
+    return dest;
+}
+
+std::string slice(const std::string& str, int start, int stop=0, int step=1)
+{
+    if (!stop) stop = str.size();
+    std::string dest;
+    for (int i=start; i < stop; i += step) {
+        dest.push_back(str[i]);
     }
     return dest;
 }
@@ -45,24 +62,36 @@ bool equals(std::vector<uint8_t> vec, const std::string& str)
 }
 
 template<class K>
-std::string getelse(const std::map<K, std::string>& dict, K key, const char* default_value)
+std::string getelse(const MAP<K, std::string>& dict, K key, const char* default_value)
 {
-    auto it = dict.find(key);
+    const auto& it = dict.find(key);
     if (it == dict.end()) {
         return default_value;
     }
     return it->second;
 }
 
+class KeyError: public std::exception {
+};
+
 template<class K, class V>
-auto getelse(const std::map<K, V>& dict, K key, V default_value)
+auto getelse(const MAP<K, V>& dict, K key, V default_value)
 -> V
 {
-    auto it = dict.find(key);
+    const auto& it = dict.find(key);
     if (it == dict.end()) {
         return default_value;
     }
     return it->second;
+}
+
+template<class T>
+auto pop(const std::vector<T>& vec)
+-> T
+{
+    auto back = std::move(vec.back());
+    vec.pop_back();
+    return back;
 }
 
 struct unpack {
@@ -82,8 +111,8 @@ public:
 
     template<class T>
     auto as() -> T {
-        if (begin_pos_+pos_+sizeof(T) > end_pos_) throw std::runtime_error("over");
-        T v = T(*reinterpret_cast<T*>(&data_[begin_pos_+pos_]));
+        if (begin_pos_+pos_+(int)sizeof(T) > end_pos_) throw std::runtime_error("over");
+        T v = T(*(T*)(&data_[begin_pos_+pos_]));
         pos_ += sizeof(T);
         return v;
     }
@@ -134,7 +163,7 @@ double as_double(std::vector<uint8_t> vec, int pos=0) {
 }
 
 template<class ...A>
-void printf(A...a) {
+void pprint(A...a) {
     std::cout << utils::str::format(a...) << std::endl;
 }
 

@@ -19,8 +19,12 @@
 #include <string>
 #include <exception>
 
+#include "./utils.h"
+
 namespace xlrd {
 namespace compdoc {
+
+USING_UTILS_PP;
 
 /*
 from __future__ import print_function
@@ -99,14 +103,14 @@ public:
 
     inline
     void dump(int DEBUG=1) {
-        utils::printf(
+        pprint(
             "DID=%d name=%s etype=%d DIDs(left=%d right=%d root=%d parent=%d kids=%s) first_SID=%d tot_size=%d\n",
             this->DID, this->name, this->etype, this->left_DID,
             this->right_DID, this->root_DID, this->parent, this->children, this->first_SID, this->tot_size
             );
         if (DEBUG == 2) {
             // cre_lo, cre_hi, mod_lo, mod_hi = tsinfo
-            utils::printf("timestamp info %s", this->tsinfo);
+            pprint("timestamp info %s", this->tsinfo);
         }
     }
 };

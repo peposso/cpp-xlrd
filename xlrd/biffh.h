@@ -28,6 +28,12 @@ namespace xlrd {
 namespace biffh {
 
 namespace strutil = utils::str;
+USING_FUNC(strutil, format);
+USING_FUNC(utils, slice);
+USING_FUNC(utils, equals);
+USING_FUNC(utils, pprint);
+USING_FUNC(utils, as_uint16);
+
 
 const int DEBUG = 0;
 
@@ -56,7 +62,7 @@ enum {
     XL_CELL_BLANK  // for use in debugging, gathering stats, etc
 };
 
-std::map<int, std::string>
+const MAP<int, std::string>
 biff_text_from_num = {
     {0,  "(not BIFF)"},
     {20, "2.0"},
@@ -83,7 +89,7 @@ biff_text_from_num = {
 // 0x2A: '//N/A',    // Argument or function not available
 // </pre></p>
 
-std::map<int, std::string>
+const MAP<int, std::string>
 error_text_from_code = {
     {0x00, "//NULL!"},   // Intersection of two cell ranges is empty
     {0x07, "//DIV/0!"},  // Division by zero
@@ -209,7 +215,7 @@ const int XL_XF2 = 0x0043; // BIFF2 version of XF record
 const int XL_XF3 = 0x0243; // BIFF3 version of XF record
 const int XL_XF4 = 0x0443; // BIFF4 version of XF record
 
-static std::map<int, int>
+static MAP<int, int>
 boflen = {{0x0809, 8}, {0x0409, 6}, {0x0209, 6}, {0x0009, 4}};
 static std::vector<int>
 bofcodes = {0x0809, 0x0409, 0x0209, 0x0009};
@@ -230,7 +236,7 @@ _cell_opcode_list = {
     XL_RK,
     XL_RSTRING,
 };
-static std::map<int, int>
+static MAP<int, int>
 _cell_opcode_dict;
 //for _cell_opcode in _cell_opcode_list:
 //    _cell_opcode_dict[_cell_opcode] = 1
@@ -423,8 +429,7 @@ unpack_cell_range_address_list_update_pos(
 /*
 */
 
-static
-std::map<int, std::string>
+const MAP<int, std::string>
 biff_rec_name_dict = {
     {0x0000, "DIMENSIONS_B2"},
     {0x0001, "BLANK_B2"},
@@ -586,38 +591,48 @@ biff_rec_name_dict = {
     {0x0868, "RANGEPROTECTION"},
 };
 
-/*
-def hex_char_dump(strg, ofs, dlen, base=0, fout=sys.stdout, unnumbered=False):
-    endpos = min(ofs + dlen, len(strg))
-    pos = ofs
-    numbered = not unnumbered
-    num_prefix = ''
-    while pos < endpos:
-        endsub = min(pos + 16, endpos)
-        substrg = strg[pos:endsub]
-        lensub = endsub - pos
-        if lensub <= 0 or lensub != len(substrg):
-            fprintf(
-                sys.stdout,
-                '??? hex_char_dump: ofs=%d dlen=%d base=%d -> endpos=%d pos=%d endsub=%d substrg=%r\n',
-                ofs, dlen, base, endpos, pos, endsub, substrg)
-            break
-        hexd = ''.join(["%02x " % BYTES_ORD(c) for c in substrg])
+inline void
+hex_char_dump(std::vector<uint8_t> strg, int ofs,
+              int dlen, int base=0)
+{
+    int endpos = std::min(ofs + dlen, (int)strg.size());
+    int pos = ofs;
+    bool numbered = true;
+    std::string num_prefix = "";
+    while (pos < endpos) {
+        int endsub = std::min(pos + 16, endpos);
+        auto substrg = slice(strg, pos, endsub);
+        int lensub = endsub - pos;
+        if (lensub <= 0 || lensub != (int)substrg.size()) {
+            pprint(
+                "??? hex_char_dump: ofs=%d dlen=%d base=%d -> endpos=%d pos=%d endsub=%d substrg=%s\n",
+                ofs, dlen, base, endpos, pos, endsub, substrg);
+            break;
+        }
+        std::string hexd;
+        for (auto c: substrg) {
+            hexd.append(format("%02x ", c));
+        }
         
-        chard = ''
-        for c in substrg:
-            c = chr(BYTES_ORD(c))
-            if c == '\0':
-                c = '~'
-            elif not (' ' <= c <= '~'):
-                c = '?'
-            chard += c
-        if numbered:
-            num_prefix = "%5d: " %  (base+pos-ofs)
-        
-        fprintf(fout, "%s     %-48s %s\n", num_prefix, hexd, chard)
-        pos = endsub
+        std::string chard;
+        for (auto c: substrg) {
+            if (c == '\0') {
+                c = '~';
+            } else if (c < ' ' || '~' < c) {
+                c = '?';
+            }
+            chard.push_back(c);
+        }
+        if (numbered) {
+            num_prefix = format("%5d: ", base+pos-ofs);
+        }
+        pprint("%s     %-48s %s\n",
+               num_prefix, hexd, chard);
+        pos = endsub;
+    }
+}
 
+/*
 def biff_dump(mem, stream_offset, stream_len, base=0, fout=sys.stdout, unnumbered=False):
     pos = stream_offset
     stream_end = stream_offset + stream_len
@@ -664,40 +679,55 @@ def biff_dump(mem, stream_offset, stream_len, base=0, fout=sys.stdout, unnumbere
     elif pos > stream_end:
         fprintf(fout, "Last dumped record has length (%d) that is too large\n", length)
 
-def biff_count_records(mem, stream_offset, stream_len, fout=sys.stdout):
-    pos = stream_offset
-    stream_end = stream_offset + stream_len
-    tally = {}
-    while stream_end - pos >= 4:
-        rc, length = unpack('<HH', mem[pos:pos+4])
-        if rc == 0 and length == 0:
-            if mem[pos:] == b'\0' * (stream_end - pos):
-                break
-            recname = "<Dummy (zero)>"
-        else:
-            recname = biff_rec_name_dict.get(rc, None)
-            if recname is None:
-                recname = "Unknown_0x%04X" % rc
-        if recname in tally:
-            tally[recname] += 1
-        else:
-            tally[recname] = 1
-        pos += length + 4
-    slist = sorted(tally.items())
-    for recname, count in slist:
-        print("%8d %s" % (count, recname), file=fout)
+*/
 
-encoding_from_codepage = {
-    1200 : 'utf_16_le',
-    10000: 'mac_roman',
-    10006: 'mac_greek', // guess
-    10007: 'mac_cyrillic', // guess
-    10029: 'mac_latin2', // guess
-    10079: 'mac_iceland', // guess
-    10081: 'mac_turkish', // guess
-    32768: 'mac_roman',
-    32769: 'cp1252',
+inline void
+biff_count_records(
+    const std::vector<uint8_t>& mem,
+    int stream_offset, int stream_len)
+{
+    int pos = stream_offset;
+    int stream_end = stream_offset + stream_len;
+    MAP<std::string, int> tally;  // = {};
+    while (stream_end - pos >= 4) {
+        int rc = as_uint16(mem, pos);
+        int length = as_uint16(mem, pos+2);
+        std::string recname;
+        if (rc == 0 && length == 0) {
+            if (equals(slice(mem, pos), std::string(stream_end - pos, '\0'))) {
+                break;
+            }
+            recname = "<Dummy (zero)>";
+        } else {
+            recname = utils::getelse(biff_rec_name_dict, rc, "");
+            if (recname.empty()) {
+                recname = format("Unknown_0x%04X", rc);
+            }
+        }
+        tally[recname] = utils::getelse(tally, recname, 0) + 1;
+        pos += length + 4;
     }
+    // slist = sorted(tally.items())
+    // for recname, count in slist {
+    //     pprint("%8d %s", count, recname);
+    // }
+    for (auto kv: tally) {
+        pprint("%8d %s", kv.second, kv.first);
+    }
+}
+
+const MAP<int, std::string>
+encoding_from_codepage = {
+    {1200 , "utf_16_le"},
+    {10000, "mac_roman"},
+    {10006, "mac_greek"}, // guess
+    {10007, "mac_cyrillic"}, // guess
+    {10029, "mac_latin2"}, // guess
+    {10079, "mac_iceland"}, // guess
+    {10081, "mac_turkish"}, // guess
+    {32768, "mac_roman"},
+    {32769, "cp1252"},
+};
 // some more guessing, for Indic scripts
 // codepage 57000 range:
 // 2 Devanagari [0]
@@ -711,7 +741,6 @@ encoding_from_codepage = {
 // 10 Gujarati [3]
 // 11 Gurmukhi [2]
 
-*/
 
 }
 }

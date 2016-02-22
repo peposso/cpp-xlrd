@@ -5,7 +5,7 @@
 ////
 // Module for parsing/evaluating Microsoft Excel formulas.
 //
-// <p>Copyright � 2005-2012 Stephen John Machin, Lingfo Pty Ltd</p>
+// <p>Copyright (c) 2005-2012 Stephen John Machin, Lingfo Pty Ltd</p>
 // <p>This module is part of the xlrd package, which is released under
 // a BSD-style licence.</p>
 ////
@@ -14,6 +14,7 @@
 
 #include <set>
 #include <cmath>
+#include <array>
 
 #include "./biffh.h"
 //  unpack_unicode_update_pos, unpack_string_update_pos,
@@ -25,6 +26,9 @@ namespace xlrd {
 namespace formula {
 
 namespace strutil = utils::str;
+USING_FUNC(strutil, format);
+USING_FUNC(utils, pprint);
+using any = utils::any;
 
 auto& unpack_unicode_update_pos = biffh::unpack_unicode_update_pos;
 auto& unpack_string_update_pos = biffh::unpack_string_update_pos;
@@ -39,7 +43,7 @@ const int FMLA_TYPE_DATA_VAL = 16;
 const int FMLA_TYPE_NAME = 32;
 const int ALL_FMLA_TYPES = 63;
 
-const std::map<int, std::string>
+const MAP<int, std::string>
 FMLA_TYPEDESCR_MAP = {
     {1 , "CELL"},
     {2 , "SHARED"},
@@ -49,7 +53,7 @@ FMLA_TYPEDESCR_MAP = {
     {32, "NAME"},
 };
 
-const std::map<int, int>
+const MAP<int, int>
 _TOKEN_NOT_ALLOWED_DICT = {
     {0x01,   ALL_FMLA_TYPES - FMLA_TYPE_CELL}, // tExp
     {0x02,   ALL_FMLA_TYPES - FMLA_TYPE_CELL}, // tTbl
@@ -85,7 +89,7 @@ const int oREL = -2;
 const int oSTRG = 1;
 const int oUNK =  0;
 
-const std::map<int, std::string>
+const MAP<int, std::string>
 okind_dict = {
     {-2, "oREL"},
     {-1, "oREF"},
@@ -115,7 +119,7 @@ sztab3 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
 const std::vector<int>
 sztab4 = {-2, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -2, -2, 2, 2, 3, 9, 9, 3, 4, 5, 5, 9, 7, 7, 7, 3, 5, 9, 5, 9, 3, 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, 7, 7, 11, 7, 11, -2, -2};
 
-const std::map<int, const std::vector<int>&>
+const MAP<int, const std::vector<int>&>
 szdict = {
     {20, sztab0},
     {21, sztab0},
@@ -129,13 +133,13 @@ szdict = {
 
 // For debugging purposes ... the name for each opcode
 // (without the prefix "t" used on OOo docs)
-static std::vector<std::string>
+const std::vector<std::string>
 onames = {"Unk00", "Exp", "Tbl", "Add", "Sub", "Mul", "Div", "Power", "Concat", "LT", "LE", "EQ", "GE", "GT", "NE", "Isect", "List", "Range", "Uplus", "Uminus", "Percent", "Paren", "MissArg", "Str", "Extended", "Attr", "Sheet", "EndSheet", "Err", "Bool", "Int", "Num", "Array", "Func", "FuncVar", "Name", "Ref", "Area", "MemArea", "MemErr", "MemNoMem", "MemFunc", "RefErr", "AreaErr", "RefN", "AreaN", "MemAreaN", "MemNoMemN", "", "", "", "", "", "", "", "", "FuncCE", "NameX", "Ref3d", "Area3d", "RefErr3d", "AreaErr3d", "", ""};
 
-static std::map<int, std::tuple<std::string, int, int, int, int, std::string, std::string>>
+static MAP<int, std::tuple<std::string, int, int, int, int, std::string, std::string>>
 #define T std::make_tuple
 func_defs = {
-    // index: (name, min//args, max//args, flags, //known_args, return_type, kargs)
+    // index) { (name, min//args, max//args, flags, //known_args, return_type, kargs)
     {0  , T("COUNT",            0, 30, 0x04,  1, "V", "R")},
     {1  , T("IF",               2,  3, 0x04,  3, "V", "VRR")},
     {2  , T("ISNA",             1,  1, 0x02,  1, "V", "V")},
@@ -399,7 +403,7 @@ func_defs = {
 };
 #undef T
 
-static std::map<int, std::string>
+static MAP<int, std::string>
 tAttrNames = {
     {0x00, "Skip??"}, // seen in SAMPLES.XLS which shipped with Excel 5.0
     {0x01, "Volatile"},
@@ -417,8 +421,6 @@ error_opcodes = {0x07, 0x08, 0x0A, 0x0B, 0x1C, 0x1D, 0x2F};
 
 // tRangeFuncs = (min, max, min, max, min, max)
 // tIsectFuncs = (max, min, max, min, max, min)
-
-
 /*
 def do_box_funcs(box_funcs, boxa, boxb):
     return tuple([
@@ -426,6 +428,38 @@ def do_box_funcs(box_funcs, boxa, boxb):
         for func, numa, numb in zip(box_funcs, boxa.coords, boxb.coords)
         ])
 */
+
+
+enum kBoxFuncs {
+    tRangeFuncs,
+    tIsectFuncs,
+};
+
+inline std::array<int, 6>
+do_box_funcs(kBoxFuncs box_funcs,
+             std::array<int, 6> coords_a,
+             std::array<int, 6> coords_b) {
+    std::array<int, 6> coords;
+    if (box_funcs == tRangeFuncs) {
+        for (int i=0; i < 6; ++i) {
+            if (i % 2 == 0) {
+                coords[i] = std::min(coords_a[i], coords_b[i]);
+            } else {
+                coords[i] = std::max(coords_a[i], coords_b[i]);
+            }
+        }
+    } else if (box_funcs == tIsectFuncs) {
+        for (int i=0; i < 6; ++i) {
+            if (i % 2 == 0) {
+                coords[i] = std::max(coords_a[i], coords_b[i]);
+            } else {
+                coords[i] = std::min(coords_a[i], coords_b[i]);
+            }
+        }
+    }
+    return coords;
+}
+
 
 inline
 std::tuple<int, int, int, int>
@@ -453,8 +487,7 @@ adjust_cell_addr_biff8(int rowval, int colval, int reldelta, int browx, int bcol
     return std::make_tuple(rowx, colx, row_rel, col_rel);
 }
 
-inline
-std::tuple<int, int, int, int>
+inline std::tuple<int, int, int, int>
 adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int bcolx) {
     int row_rel = (rowval >> 15) & 1;
     int col_rel = (rowval >> 14) & 1;
@@ -479,14 +512,15 @@ adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int b
     return std::make_tuple(rowx, colx, row_rel, col_rel);
 }
 
-inline
-std::tuple<int, int, int, int>
-get_cell_addr(const std::vector<uint8_t>& data, int pos, int bv, int reldelta, int browx, int bcolx) {
+inline std::tuple<int, int, int, int>
+get_cell_addr(const std::vector<uint8_t>& data, int pos, int bv,
+              int reldelta, int browx, int bcolx) {
     if (bv >= 80) {
         int rowval = utils::as_uint16(data, pos);
         int colval = utils::as_uint16(data, pos+2);
         // print "    rv=%04xh cv=%04xh" % (rowval, colval)
-        return adjust_cell_addr_biff8(rowval, colval, reldelta, browx, bcolx);
+        return adjust_cell_addr_biff8(
+                   rowval, colval, reldelta, browx, bcolx);
     }
     else {
         int rowval = utils::as_uint16(data, pos);
@@ -523,29 +557,31 @@ get_cell_range_addr(const std::vector<uint8_t>& data, int pos, int bv,
         // print "    rv=%04xh cv=%04xh" % (row1val, col1val)
         // print "    rv=%04xh cv=%04xh" % (row2val, col2val)
         auto res1 = adjust_cell_addr_biff_le7(
-                    row1val, col1val, reldelta, browx, bcolx);
+                        row1val, col1val, reldelta, browx, bcolx);
         auto res2 = adjust_cell_addr_biff_le7(
-                    row2val, col2val, reldelta, browx, bcolx);
+                        row2val, col2val, reldelta, browx, bcolx);
         return std::make_tuple(res1, res2);
     }
 }
 
-class FormulaDelegate {
+class FormulaBookDelegate {
 public:
     std::vector<std::tuple<int, int, int>> _externsheet_info;
     std::vector<int> _all_sheets_map;
     virtual std::vector<std::string> sheet_names();
     int _supbook_addins_inx;
     int _supbook_locals_inx;
+    int biff_version;
+    std::string encoding;
 };
 
 inline
 std::tuple<int, int>
-get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
+get_externsheet_local_range(const FormulaBookDelegate& bk, int refx, int blah=0) {
     if (refx >= (int)bk._externsheet_info.size()) {
-        utils::printf(
-            "!!! get_externsheet_local_range: refx=%d, not in range(%d)"
-            , refx, bk._externsheet_info.size());
+        pprint(
+            "!!! get_externsheet_local_range) { refx=%d, not in range(%d)",
+            refx, bk._externsheet_info.size());
         return std::make_tuple(-101, -101);
     }
     auto info = bk._externsheet_info[refx];
@@ -554,16 +590,16 @@ get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
     int ref_last_sheetx = std::get<2>(info);
     if (ref_recordx == bk._supbook_addins_inx) {
         if (blah) {
-            utils::printf(
-                "/// get_externsheet_local_range(refx=%d) -> addins %s"
-                , refx, strutil::repr(info));
+            pprint(
+                "/// get_externsheet_local_range(refx=%d) -> addins %s",
+                refx, strutil::repr(info));
         }
         //assert ref_first_sheetx == 0xFFFE == ref_last_sheetx
         return std::make_tuple(-5, -5);
     }
     if (ref_recordx != bk._supbook_locals_inx) {
         if (blah) {
-            utils::printf(
+            pprint(
                 "/// get_externsheet_local_range(refx=%d) -> external %s"
                 , refx, strutil::repr(info));
         }
@@ -571,7 +607,7 @@ get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
     }
     if (ref_first_sheetx == 0xFFFE && 0xFFFE == ref_last_sheetx) {
         if (blah) {
-            utils::printf(
+            pprint(
                 "/// get_externsheet_local_range(refx=%d) -> unspecified sheet %s"
                 , refx, strutil::repr(info));
         }
@@ -579,7 +615,7 @@ get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
     }
     if (ref_first_sheetx == 0xFFFF && 0xFFFF == ref_last_sheetx) {
         if (blah) {
-            utils::printf(
+            pprint(
                 "/// get_externsheet_local_range(refx=%d) -> deleted sheet(s)",
                 refx);
         }
@@ -588,8 +624,8 @@ get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
     int nsheets = bk._all_sheets_map.size();
     if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx < nsheets)) {
         if (blah) {
-            utils::printf("/// get_externsheet_local_range(refx=%d) -> %s", refx, strutil::repr(info));
-            utils::printf("--- first/last sheet not in range(%d)", nsheets);
+            pprint("/// get_externsheet_local_range(refx=%d) -> %s", refx, strutil::repr(info));
+            pprint("--- first/last sheet not in range(%d)", nsheets);
         }
         return std::make_tuple(-102, -102); // stuffed up somewhere :-(
     }
@@ -604,12 +640,12 @@ get_externsheet_local_range(const FormulaDelegate& bk, int refx, int blah=0) {
 inline
 std::tuple<int, int>
 get_externsheet_local_range_b57(
-    FormulaDelegate bk, int raw_extshtx,
+    FormulaBookDelegate bk, int raw_extshtx,
     int ref_first_sheetx, int ref_last_sheetx, int blah=0)
 {
     if (raw_extshtx > 0) {
         if (blah) {
-            utils::printf("/// get_externsheet_local_range_b57(raw_extshtx=%d) -> external", raw_extshtx);
+            pprint("/// get_externsheet_local_range_b57(raw_extshtx=%d) -> external", raw_extshtx);
         }
         return std::make_tuple(-4, -4); // external reference
     }
@@ -619,11 +655,11 @@ get_externsheet_local_range_b57(
     int nsheets = bk._all_sheets_map.size();
     if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx  < nsheets)) {
         if (blah) {
-            utils::printf(
+            pprint(
                 "/// get_externsheet_local_range_b57(%d, %d, %d) -> ???"
                 , raw_extshtx, ref_first_sheetx, ref_last_sheetx
             );
-            utils::printf("--- first/last sheet not in range(%d)", nsheets);
+            pprint("--- first/last sheet not in range(%d)", nsheets);
         }
         return std::make_tuple(-103, -103); // stuffed up somewhere :-(
     }
@@ -637,6 +673,9 @@ get_externsheet_local_range_b57(
 
 class FormulaError: public std::runtime_error
 {
+public:
+    FormulaError(const char* msg) : std::runtime_error(msg) {};
+    FormulaError(std::string msg) : std::runtime_error(msg.c_str()) {};
 };
 
 
@@ -654,19 +693,19 @@ class FormulaError: public std::runtime_error
 // <tr>
 // <td>oBOOL</td>
 // <td align="center">3</td>
-// <td>integer: 0 => False; 1 => True</td>
+// <td>integer:0 => False; 1 => True</td>
 // </tr>
 // <tr>
 // <td>oERR</td>
 // <td align="center">4</td>
-// <td>None, or an int error code (same as XL_CELL_ERROR in the Cell class).
+// <td>nullptr, or an int error code (same as XL_CELL_ERROR in the Cell class).
 // </td>
 // </tr>
 // <tr>
 // <td>oMSNG</td>
 // <td align="center">5</td>
 // <td>Used by Excel as a placeholder for a missing (not supplied) function
-// argument. Should *not* appear as a final formula result. Value is None.</td>
+// argument. Should *not* appear as a final formula result. Value is nullptr.</td>
 // </tr>
 // <tr>
 // <td>oNUM</td>
@@ -676,14 +715,14 @@ class FormulaError: public std::runtime_error
 // <tr>
 // <td>oREF</td>
 // <td align="center">-1</td>
-// <td>The value is either None or a non-empty list of
+// <td>The value is either nullptr or a non-empty list of
 // absolute Ref3D instances.<br>
 // </td>
 // </tr>
 // <tr>
 // <td>oREL</td>
 // <td align="center">-2</td>
-// <td>The value is None or a non-empty list of
+// <td>The value is nullptr or a non-empty list of
 // fully or partially relative Ref3D instances.
 // </td>
 // </tr>
@@ -695,7 +734,7 @@ class FormulaError: public std::runtime_error
 // <tr>
 // <td>oUNK</td>
 // <td align="center">0</td>
-// <td>The kind is unknown or ambiguous. The value is None</td>
+// <td>The kind is unknown or ambiguous. The value is nullptr</td>
 // </tr>
 // </table>
 //<p></p>
@@ -704,7 +743,7 @@ class Operand
 {
 public:
     ////
-    // None means that the actual value of the operand is a variable
+    // nullptr means that the actual value of the operand is a variable
     // (depends on cell data), not a constant.
     utils::any value;
     ////
@@ -719,7 +758,8 @@ public:
     int rank = 0;
 
     inline
-    Operand(int akind=-1, utils::any avalue=nullptr, int arank=0, std::string atext="?")
+    Operand(int akind=-1, utils::any avalue=nullptr,
+            int arank=0, std::string atext="?")
     {
         if (akind != -1) {
             this->kind = akind;
@@ -731,8 +771,7 @@ public:
         this->text = atext;
     };
 
-    inline
-    std::string
+    inline std::string
     repr() {
         auto kind_text = utils::getelse(okind_dict, this->kind, "?Unknown kind?");
         return strutil::format(
@@ -755,11 +794,11 @@ public:
 // Print_Titles could have colxhi == 256 and/or rowxhi == 65536
 // irrespective of how many columns/rows are actually used in the worksheet.
 // The caller will need to decide how to handle this situation.
-// Keyword: IndexError :-)
+// Keyword) { IndexError :-)
 // </p>
 //
 // <p>The components of the coords attribute are also available as individual
-// attributes: shtxlo, shtxhi, rowxlo, rowxhi, colxlo, and colxhi.</p>
+// attributes) { shtxlo, shtxhi, rowxlo, rowxhi, colxlo, and colxhi.</p>
 //
 // <p>The <i>relflags</i> attribute is a 6-tuple of flags which indicate whether
 // the corresponding (sheet|row|col)(lo|hi) is relative (1) or absolute (0).<br>
@@ -772,7 +811,7 @@ public:
 // The resulting Ref3D instance will have coords = (2, 3, 0, -16, 0, 26)
 // and relflags = (0, 0, 0, 1, 0, 0).<br>
 // So far, only one possibility of a sheet-relative component in
-// a reference has been noticed: a 2D reference located in the "current sheet".
+// a reference has been noticed) { a 2D reference located in the "current sheet".
 // <br /> This will appear as coords = (0, 1, ...) and relflags = (1, 1, ...).
 class Ref3D
 {
@@ -783,14 +822,14 @@ public:
     int rowxhi;
     int colxlo;
     int colxhi;
-    std::vector<int> coords;
-    std::vector<int> relflags;
+    std::array<int, 6> coords;
+    std::array<int, 6> relflags;
 
     inline
     Ref3D(int c1, int c2, int c3, int c4, int c5, int c6, int r1=0, int r2=0, int r3=0, int r4=0, int r5=0, int r6=0)
     {
-        this->coords = std::vector<int>{c1, c2, c3, c4, c5, c6};
-        this->relflags = std::vector<int>{r1, r2, r3, r4, r5, r6};
+        this->coords = {{c1, c2, c3, c4, c5, c6}};
+        this->relflags = {{r1, r2, r3, r4, r5, r6}};
         this->shtxlo = c1;
         this->shtxhi = c2;
         this->rowxlo = c3;
@@ -799,11 +838,37 @@ public:
         this->colxhi = c6;
     };
 
+    inline
+    Ref3D(const std::array<int, 6>& coords_)
+    {
+        this->coords = coords_;
+        this->relflags = {{0, 0, 0, 0, 0, 0}};
+        this->shtxlo = coords_[0];
+        this->shtxhi = coords_[1];
+        this->rowxlo = coords_[2];
+        this->rowxhi = coords_[3];
+        this->colxlo = coords_[4];
+        this->colxhi = coords_[5];
+    };
+
+    inline
+    Ref3D(const std::array<int, 6>& coords_, const std::array<int, 6>& relflags_)
+    {
+        this->coords = coords_;
+        this->relflags = relflags_;
+        this->shtxlo = coords_[0];
+        this->shtxhi = coords_[1];
+        this->rowxlo = coords_[2];
+        this->rowxhi = coords_[3];
+        this->colxlo = coords_[4];
+        this->colxhi = coords_[5];
+    };
+
     // def __repr__(self):
     //     if not self.relflags or self.relflags == (0, 0, 0, 0, 0, 0):
-    //         return "Ref3D(coords=%r)" % (self.coords, )
-    //     else:
-    //         return "Ref3D(coords=%r, relflags=%r)"
+    //         return "Ref3D(coords=%s)" % (self.coords, )
+    //     } else {
+    //         return "Ref3D(coords=%s, relflags=%s)"
     //             % (self.coords, self.relflags)
 };
 
@@ -819,13 +884,12 @@ enum {
   // = range(0x09, 0x0F)
 };
 
-//import operator as opr
-
-double nop(double x) {
-    return x;
+inline
+any nop(const any& a) {
+    return a;
 }
 
-double tod(utils::any a) {
+double tod(const utils::any& a) {
     if (a.is<double>()) {
         return a.cast<double>();
     } else if (a.is<float>()) {
@@ -834,90 +898,169 @@ double tod(utils::any a) {
         return a.cast<int>();
     } else if (a.is<std::string>()) {
         return std::stod(a.cast<std::string>());
+    } else if (a.is<bool>()) {
+        return a.cast<bool>()? 1.0: 0.0;
     }
     return 0.0;
 }
 
-utils::any _opr_add(utils::any x, utils::any y) {
+inline any
+_opr_add(const any& x, const any& y) {
     if (x.is<int>() && y.is<int>()) {
         return x.cast<int>() + y.cast<int>();
     }
     return tod(x) + tod(y);
 }
-utils::any _opr_pow(utils::any x, utils::any y) {
+inline any
+_opr_sub(const any& x, const any& y) {
+    if (x.is<int>() && y.is<int>()) {
+        return x.cast<int>() - y.cast<int>();
+    }
+    return tod(x) - tod(y);
+}
+inline any
+_opr_mul(const any& x, const any& y) {
+    if (x.is<int>() && y.is<int>()) {
+        return x.cast<int>() * y.cast<int>();
+    }
+    return tod(x) * tod(y);
+}
+inline any
+_opr_div(const any& x, const any& y) {
+    return tod(x) / tod(y);
+}
+inline any
+_opr_pow(const any& x, const any& y) {
     return std::pow(tod(x), tod(y));
 }
+inline any
+_opr_concat(const any& x, const any& y) {
+    return x.to_str() + y.to_str();
+}
+inline any
+_opr_lt(const any& x, const any& y) {
+    if (x.is_str() && y.is_str()) {
+        return x.to_str() < y.to_str();
+    }
+    return tod(x) < tod(y);
+}
+inline any
+_opr_le(const any& x, const any& y) {
+    if (x.is_str() && y.is_str()) {
+        return x.to_str() <= y.to_str();
+    }
+    return tod(x) <= tod(y);
+}
+inline any
+_opr_eq(const any& x, const any& y) {
+    if (x.is_str() && y.is_str()) {
+        return x.to_str() <= y.to_str();
+    }
+    return tod(x) <= tod(y);
+}
+inline any
+_opr_ge(const any& x, const any& y) {
+    if (x.is_str() && y.is_str()) {
+        return x.to_str() <= y.to_str();
+    }
+    return tod(x) <= tod(y);
+}
+inline any
+_opr_gt(const any& x, const any& y) {
+    if (x.is_str() && y.is_str()) {
+        return x.to_str() <= y.to_str();
+    }
+    return tod(x) <= tod(y);
+}
+inline any
+_opr_ne(const any& x, const any& y) {
+    if (x.is_str() && y.is_str()) {
+        return x.to_str() <= y.to_str();
+    }
+    return tod(x) <= tod(y);
+}
 
-template<class T> bool _opr_lt(T x, T y) {return x <  y;}
-template<class T> bool _opr_le(T x, T y) {return x <= y;}
-template<class T> bool _opr_eq(T x, T y) {return x == y;}
-template<class T> bool _opr_ge(T x, T y) {return x >= y;}
-template<class T> bool _opr_gt(T x, T y) {return x >  y;}
-template<class T> bool _opr_ne(T x, T y) {return x != y;}
-
-std::string num2strg(double num) {    
+any num2strg(const any& a) {
     // """Attempt to emulate Excel's default conversion
     //    from number to string.
     // """
+    if (a.is_int()) {
+        return a.to_str();
+    }
+    double num = a.to_double();
     double v = num - (int)num;
-    if (std::abs(v) < 0.00001) {
+    if (std::abs(v) < 0.0000001) {
         return strutil::format("%d", (int)num);
     }
     return strutil::format("%f", num);
 }
-double strg2num(std::string s) {
-    return std::stod(s);
-}
-std::string tostr(utils::any a) {
-    if (a.is<int>()) {
-        return strutil::format("%d", a.cast<int>());
-    } else if (a.is<double>()||a.is<float>()) {
-        return num2strg(a.cast<int>());
-    } else if (a.is<std::string>()) {
-        return a.cast<std::string>();
+any strg2num(const utils::any& a) {
+    if (a.is_str()) {
+        auto s = a.to_str();
+        if (s.find('.') == std::string::npos) {
+          return std::stoi(s);
+        }
+        return std::stod(s);
+    } else if (a.is_int() || a.is<bool>()) {
+        return a.to_int();
     }
-    return "";
+    return a.to_double();
 }
 
-utils::any
-_cast_num(utils::any a) {
-    if (a.is<int>() || a.is<float>() || a.is<double>()) {
-        return a;
-    } else if (a.is<std::string>()) {
-        return std::stod(a.cast<std::string>());
-    }
-    return utils::any(0.);
-}
 
-const std::map<int, decltype(tostr)*>
-_arith_argdict = {{oNUM, &tostr},     {oSTRG, &tostr}};
+const MAP<int, decltype(nop)*>
+_arith_argdict = {{oNUM, &nop},
+                  {oSTRG, &strg2num}};
 
-// _cmp_argdict =   {oNUM: nop,     oSTRG: nop}
-// // Seems no conversions done on relops; in Excel, "1" > 9 produces TRUE.
-// _strg_argdict =  {oNUM:num2strg, oSTRG:nop}
+const MAP<int, decltype(nop)*>
+_cmp_argdict =   {{oNUM, &nop},
+                  {oSTRG, &nop}};
+// Seems no conversions done on relops; in Excel, "1" > 9 produces TRUE.
+const MAP<int, decltype(nop)*>
+_strg_argdict = {{oNUM, &num2strg},
+                 {oSTRG, &nop}};
 
-/*
+#define T std::make_tuple
+const MAP<int,
+          std::tuple<decltype(_arith_argdict),
+                     int, decltype(_opr_add)*,
+                     int, std::string>>
 binop_rules = {
-    tAdd:   (_arith_argdict, oNUM, opr.add,  30, '+'),
-    tSub:   (_arith_argdict, oNUM, opr.sub,  30, '-'),
-    tMul:   (_arith_argdict, oNUM, opr.mul,  40, '*'),
-    tDiv:   (_arith_argdict, oNUM, opr.truediv,  40, '/'),
-    tPower: (_arith_argdict, oNUM, _opr_pow, 50, '^',),
-    tConcat:(_strg_argdict, oSTRG, opr.add,  20, '&'),
-    tLT:    (_cmp_argdict, oBOOL, _opr_lt,   10, '<'),
-    tLE:    (_cmp_argdict, oBOOL, _opr_le,   10, '<='),
-    tEQ:    (_cmp_argdict, oBOOL, _opr_eq,   10, '='),
-    tGE:    (_cmp_argdict, oBOOL, _opr_ge,   10, '>='),
-    tGT:    (_cmp_argdict, oBOOL, _opr_gt,   10, '>'),
-    tNE:    (_cmp_argdict, oBOOL, _opr_ne,   10, '<>'),
+    {tAdd,   T(_arith_argdict, oNUM, &_opr_add,  30, "+")},
+    {tSub,   T(_arith_argdict, oNUM, &_opr_sub,  30, "-")},
+    {tMul,   T(_arith_argdict, oNUM, &_opr_mul,  40, "*")},
+    {tDiv,   T(_arith_argdict, oNUM, &_opr_div,  40, "/")},
+    {tPower, T(_arith_argdict, oNUM, &_opr_pow, 50, "^")},
+    {tConcat,T(_strg_argdict, oSTRG, &_opr_add,  20, "&")},
+    {tLT,    T(_cmp_argdict, oBOOL, &_opr_lt,   10, "<")},
+    {tLE,    T(_cmp_argdict, oBOOL, &_opr_le,   10, "<=")},
+    {tEQ,    T(_cmp_argdict, oBOOL, &_opr_eq,   10, "=")},
+    {tGE,    T(_cmp_argdict, oBOOL, &_opr_ge,   10, ">=")},
+    {tGT,    T(_cmp_argdict, oBOOL, &_opr_gt,   10, ">")},
+    {tNE,    T(_cmp_argdict, oBOOL, &_opr_ne,   10, "<>")},
 };
 
-unop_rules = {
-    0x13: (lambda x: -x,        70, '-', ''), // unary minus
-    0x12: (lambda x: x,         70, '+', ''), // unary plus
-    0x14: (lambda x: x / 100.0, 60, '',  '%'),// percent
+any _unm_minus(const utils::any& a) {
+    if (a.is_int() || a.is<bool>()) {
+        return -a.to_int();
     }
-*/
+    return -a.to_double();
+}
+
+any _unm_percent(const utils::any& a) {
+    return a.to_double() / 100.0;
+}
+
+const MAP<int,
+               std::tuple<decltype(nop)*,
+                          int, char, char>>
+unop_rules = {
+    {0x13, T(*_unm_minus,   70, '-', '\0')}, // unary minus
+    {0x12, T(*nop,          70, '+', '\0')}, // unary plus
+    {0x14, T(*_unm_percent, 60, '\0',  '%')},// percent
+};
+#undef T
+
 
 const int LEAF_RANK = 90;
 const int FUNC_RANK = 90;
@@ -925,658 +1068,840 @@ const int FUNC_RANK = 90;
 const int STACK_ALARM_LEVEL = 5;
 const int STACK_PANIC_LEVEL = 10;
 
-/*
-def evaluate_name_formula(bk, nobj, namex, blah=0, level=0):
-    if level > STACK_ALARM_LEVEL:
-        blah = 1
-    data = nobj.raw_formula
-    fmlalen = nobj.basic_formula_len
-    bv = bk.biff_version
-    reldelta = 1 // All defined name formulas use "Method B" [OOo docs]
-    if blah:
-        print("::: evaluate_name_formula %r %r %d %d %r level=%d" \
-            % (namex, nobj.name, fmlalen, bv, data, level), file=bk.logfile)
-        hex_char_dump(data, 0, fmlalen, fout=bk.logfile)
-    if level > STACK_PANIC_LEVEL:
-        raise XLRDError("Excessive indirect references in NAME formula")
-    sztab = szdict[bv]
-    pos = 0
-    stack = []
-    any_rel = 0
-    any_err = 0
-    any_external = 0
-    unk_opnd = Operand(oUNK, None)
-    error_opnd = Operand(oERR, None)
-    spush = stack.append
 
-    def do_binop(opcd, stk):
-        assert len(stk) >= 2
-        bop = stk.pop()
-        aop = stk.pop()
-        argdict, result_kind, func, rank, sym = binop_rules[opcd]
-        otext = ''.join([
-            '('[:aop.rank < rank],
-            aop.text,
-            ')'[:aop.rank < rank],
-            sym,
-            '('[:bop.rank < rank],
-            bop.text,
-            ')'[:bop.rank < rank],
-            ])
-        resop = Operand(result_kind, None, rank, otext)
-        try:
-            bconv = argdict[bop.kind]
-            aconv = argdict[aop.kind]
-        except KeyError:
-            stk.append(resop)
-            return
-        if bop.value is None or aop.value is None:
-            stk.append(resop)
-            return
-        bval = bconv(bop.value)
-        aval = aconv(aop.value)
-        result = func(aval, bval)
-        if result_kind == oBOOL:
-            result = 1 if result else 0
-        resop.value = result
-        stk.append(resop)
+inline void
+do_binop(int opcd, std::vector<Operand>& stk) {
+    //assert len(stk) >= 2
+    auto bop = std::move(stk.back());
+    stk.pop_back();
+    auto aop = std::move(stk.back());
+    stk.pop_back();
 
-    def do_unaryop(opcode, result_kind, stk):
-        assert len(stk) >= 1
-        aop = stk.pop()
-        val = aop.value
-        func, rank, sym1, sym2 = unop_rules[opcode]
-        otext = ''.join([
-            sym1,
-            '('[:aop.rank < rank],
-            aop.text,
-            ')'[:aop.rank < rank],
-            sym2,
-            ])
-        if val is not None:
-            val = func(val)
-        stk.append(Operand(result_kind, val, rank, otext))
+    auto& tup = binop_rules.at(opcd);
+    decltype(_arith_argdict) argdict = std::get<0>(tup);
+    int result_kind                  = std::get<1>(tup);
+    decltype(_opr_add)* func         = std::get<2>(tup);
+    int rank                         = std::get<3>(tup);
+    std::string sym                  = std::get<4>(tup);
 
-    def not_in_name_formula(op_arg, oname_arg):
-        msg = "ERROR *** Token 0x%02x (%s) found in NAME formula" \
-              % (op_arg, oname_arg)
-        raise FormulaError(msg)
+    std::string otext;
+    otext.append(aop.rank < rank?
+                 format("(%s)", aop.text):
+                 aop.text);
+    otext.append(sym);
+    otext.append(bop.rank < rank?
+                 format("(%s)", bop.text):
+                 bop.text);
+    auto resop = Operand(result_kind, nullptr,
+                         rank, otext);
+    const auto& b_it = argdict.find(bop.kind);
+    const auto& a_it = argdict.find(aop.kind);
+    if (b_it == argdict.end() ||
+        a_it == argdict.end()) {
+        stk.push_back(std::move(resop));
+        return;
+    }
+    if (bop.value.is_null() ||aop.value.is_null()) {
+        stk.push_back(std::move(resop));
+        return;
+    }
+    auto bval = (*b_it->second)(bop.value);
+    auto aval = (*a_it->second)(aop.value);
+    any result = (*func)(aval, bval);
+    if (result_kind == oBOOL) {
+        result = result.cast<bool>()? 1: 0;
+    }
+    resop.value = result;
+    stk.push_back(std::move(resop));
+};
 
-    if fmlalen == 0:
-        stack = [unk_opnd]
+inline void
+do_unaryop(int opcode, int result_kind,
+           std::vector<Operand>& stk) {
+    //assert len(stk) >= 1
+    auto aop = std::move(stk.back());
+    stk.pop_back();
+    auto& val = aop.value;
 
-    while 0 <= pos < fmlalen:
-        op = BYTES_ORD(data[pos])
-        opcode = op & 0x1f
-        optype = (op & 0x60) >> 5
-        if optype:
-            opx = opcode + 32
-        else:
-            opx = opcode
-        oname = onames[opx] // + [" RVA"][optype]
-        sz = sztab[opx]
-        if blah:
-            print("Pos:%d Op:0x%02x Name:t%s Sz:%d opcode:%02xh optype:%02xh" \
-                % (pos, op, oname, sz, opcode, optype), file=bk.logfile)
-            print("Stack =", stack, file=bk.logfile)
-        if sz == -2:
-            msg = 'ERROR *** Unexpected token 0x%02x ("%s"); biff_version=%d' \
-                % (op, oname, bv)
-            raise FormulaError(msg)
-        if not optype:
-            if 0x00 <= opcode <= 0x02: // unk_opnd, tExp, tTbl
-                not_in_name_formula(op, oname)
-            elif 0x03 <= opcode <= 0x0E:
+    auto tup = unop_rules.at(opcode);
+    decltype(nop)* func = std::get<0>(tup);
+    int rank = std::get<1>(tup);;
+    char sym1 = std::get<2>(tup);;
+    char sym2 = std::get<3>(tup);;
+
+    std::string otext;
+    if (sym1) otext.push_back(sym1);
+    otext.append(aop.rank < rank?
+                 aop.text:
+                 format("(%s)", aop.text));
+    if (sym2) otext.push_back(sym2);
+    if (!val.is_null()) {
+        val = func(val);
+    }
+    stk.push_back(Operand(result_kind, std::move(val), rank, otext));
+}
+
+inline void
+not_in_name_formula(int op_arg, std::string oname_arg) {
+    throw FormulaError(
+        format("ERROR *** Token 0x%02x (%s) found in NAME formula",
+               op_arg, oname_arg));
+}
+
+class FormulaNameDelegate {
+public:
+    std::string name;
+    std::vector<uint8_t> raw_formula;  // fixme:
+    int basic_formula_len;
+};
+
+inline
+void evaluate_name_formula(FormulaBookDelegate* bk,
+                           FormulaNameDelegate nobj,
+                           int namex,
+                           int blah=0,
+                           int level=0)
+{
+    if (level > STACK_ALARM_LEVEL) {
+        blah = 1;
+    }
+    std::vector<uint8_t> data = nobj.raw_formula;
+    int fmlalen = nobj.basic_formula_len;
+    int bv = bk->biff_version;
+    int reldelta = 1; // All defined name formulas use "Method B" [OOo docs]
+    if (blah) {
+        pprint("::: evaluate_name_formula %s %s %d %d %s level=%d", namex, nobj.name, fmlalen, bv, data, level);
+        biffh::hex_char_dump(data, 0, fmlalen);
+    }
+    if (level > STACK_PANIC_LEVEL) {
+        throw XLRDError("Excessive indirect references in NAME formula");
+    }
+    auto& sztab = szdict.at(bv);
+    int pos = 0;
+    std::vector<Operand> stack = {};
+    int any_rel = 0;
+    int any_err = 0;
+    int any_external = 0;
+    auto unk_opnd = Operand(oUNK, nullptr);
+    auto error_opnd = Operand(oERR, nullptr);
+    //stack.push_back = stack.append;
+
+    if (fmlalen == 0) {
+        stack.push_back(unk_opnd);
+    }
+
+    while (0 <= pos && pos < fmlalen) {
+        int op = data[pos];
+        int opcode = op & 0x1f;
+        int optype = (op & 0x60) >> 5;
+        int opx;
+        if (optype) {
+            opx = opcode + 32;
+        } else {
+            opx = opcode;
+        }
+        std::string oname = onames.at(opx); // + [" RVA"][optype]
+        int sz = sztab.at(opx);
+        if (blah) {
+            pprint("Pos:%d Op:0x%02x Name:t%s Sz:%d opcode:%02xh optype:%02xh",
+                pos, op, oname, sz, opcode, optype);
+            pprint("Stack = %s", stack);
+        }
+        if (sz == -2) {
+            throw FormulaError(format(
+                "ERROR *** Unexpected token 0x%02x (%s); biff_version=%d",
+                op, oname, bv));
+        }
+        if (!optype) {
+            if (0x00 <= opcode && opcode <= 0x02) { // unk_opnd, tExp, tTbl
+                not_in_name_formula(op, oname);
+            } else if (0x03 <= opcode && opcode <= 0x0E) {
                 // Add, Sub, Mul, Div, Power
                 // tConcat
                 // tLT, ..., tNE
-                do_binop(opcode, stack)
-            elif opcode == 0x0F: // tIsect
-                if blah: print("tIsect pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
-                bop = stack.pop()
-                aop = stack.pop()
-                sym = ' '
-                rank = 80 //////////////////// check //////////////
-                otext = ''.join([
-                    '('[:aop.rank < rank],
-                    aop.text,
-                    ')'[:aop.rank < rank],
-                    sym,
-                    '('[:bop.rank < rank],
-                    bop.text,
-                    ')'[:bop.rank < rank],
-                    ])
-                res = Operand(oREF)
-                res.text = otext
-                if bop.kind == oERR or aop.kind == oERR:
-                    res.kind = oERR
-                elif bop.kind == oUNK or aop.kind == oUNK:
+                do_binop(opcode, stack);
+            } else if (opcode == 0x0F) { // tIsect
+                if (blah) { pprint("tIsect pre", stack); }
+                ASSERT(stack.size() >= 2);
+                auto bop = stack.back();
+                stack.pop_back();
+                auto aop = stack.back();
+                stack.pop_back();
+                char sym = ' ';
+                int rank = 80; //////////////////// check //////////////
+                std::string otext;
+                otext.append(aop.rank < rank ?
+                             aop.text:
+                             format("(%s)", aop.text));
+                otext.push_back(sym);
+                otext.append(bop.rank < rank ?
+                             bop.text:
+                             format("(%s)", bop.text));
+                auto res = Operand(oREF);
+                res.text = otext;
+                if (bop.kind == oERR || aop.kind == oERR) {
+                    res.kind = oERR;
+                } else if (bop.kind == oUNK || aop.kind == oUNK) {
                     // This can happen with undefined
                     // (go search in the current sheet) labels.
                     // For example =Bob Sales
                     // Each label gets a NAME record with an empty formula (!)
                     // Evaluation of the tName token classifies it as oUNK
                     // res.kind = oREF
-                    pass
-                elif bop.kind == oREF == aop.kind:
-                    if aop.value is not None and bop.value is not None:
-                        assert len(aop.value) == 1
-                        assert len(bop.value) == 1
-                        coords = do_box_funcs(
-                            tIsectFuncs, aop.value[0], bop.value[0])
-                        res.value = [Ref3D(coords)]
-                elif bop.kind == oREL == aop.kind:
-                    res.kind = oREL
-                    if aop.value is not None and bop.value is not None:
-                        assert len(aop.value) == 1
-                        assert len(bop.value) == 1
-                        coords = do_box_funcs(
-                            tIsectFuncs, aop.value[0], bop.value[0])
-                        relfa = aop.value[0].relflags
-                        relfb = bop.value[0].relflags
-                        if relfa == relfb:
-                            res.value = [Ref3D(coords + relfa)]
-                else:
-                    pass
-                spush(res)
-                if blah: print("tIsect post", stack, file=bk.logfile)
-            elif opcode == 0x10: // tList
-                if blah: print("tList pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
-                bop = stack.pop()
-                aop = stack.pop()
-                sym = ','
-                rank = 80 //////////////////// check //////////////
-                otext = ''.join([
-                    '('[:aop.rank < rank],
-                    aop.text,
-                    ')'[:aop.rank < rank],
-                    sym,
-                    '('[:bop.rank < rank],
-                    bop.text,
-                    ')'[:bop.rank < rank],
-                    ])
-                res = Operand(oREF, None, rank, otext)
-                if bop.kind == oERR or aop.kind == oERR:
-                    res.kind = oERR
-                elif bop.kind in (oREF, oREL) and aop.kind in (oREF, oREL):
-                    res.kind = oREF
-                    if aop.kind == oREL or bop.kind == oREL:
-                        res.kind = oREL
-                    if aop.value is not None and bop.value is not None:
-                        assert len(aop.value) >= 1
-                        assert len(bop.value) == 1
-                        res.value = aop.value + bop.value
-                else:
-                    pass
-                spush(res)
-                if blah: print("tList post", stack, file=bk.logfile)
-            elif opcode == 0x11: // tRange
-                if blah: print("tRange pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
-                bop = stack.pop()
-                aop = stack.pop()
-                sym = ':'
-                rank = 80 //////////////////// check //////////////
-                otext = ''.join([
-                    '('[:aop.rank < rank],
-                    aop.text,
-                    ')'[:aop.rank < rank],
-                    sym,
-                    '('[:bop.rank < rank],
-                    bop.text,
-                    ')'[:bop.rank < rank],
-                    ])
-                res = Operand(oREF, None, rank, otext)
-                if bop.kind == oERR or aop.kind == oERR:
-                    res = oERR
-                elif bop.kind == oREF == aop.kind:
-                    if aop.value is not None and bop.value is not None:
-                        assert len(aop.value) == 1
-                        assert len(bop.value) == 1
-                        coords = do_box_funcs(
-                            tRangeFuncs, aop.value[0], bop.value[0])
-                        res.value = [Ref3D(coords)]
-                elif bop.kind == oREL == aop.kind:
-                    res.kind = oREL
-                    if aop.value is not None and bop.value is not None:
-                        assert len(aop.value) == 1
-                        assert len(bop.value) == 1
-                        coords = do_box_funcs(
-                            tRangeFuncs, aop.value[0], bop.value[0])
-                        relfa = aop.value[0].relflags
-                        relfb = bop.value[0].relflags
-                        if relfa == relfb:
-                            res.value = [Ref3D(coords + relfa)]
-                else:
-                    pass
-                spush(res)
-                if blah: print("tRange post", stack, file=bk.logfile)
-            elif 0x12 <= opcode <= 0x14: // tUplus, tUminus, tPercent
-                do_unaryop(opcode, oNUM, stack)
-            elif opcode == 0x15: // tParen
+                    //pass
+                } else if (bop.kind == oREF && oREF == aop.kind) {
+                    if (!aop.value.is_null() && !bop.value.is_null()) {
+                        ASSERT(aop.value.is<std::vector<Ref3D>>());
+                        ASSERT(bop.value.is<std::vector<Ref3D>>());
+                        auto aref = aop.value.cast<std::vector<Ref3D>>();
+                        auto bref = bop.value.cast<std::vector<Ref3D>>();
+                        ASSERT(aref.size() == 1);
+                        ASSERT(bref.size() == 1);
+                        auto coords = do_box_funcs(tIsectFuncs,
+                                                   aref[0].coords,
+                                                   bref[0].coords);
+                        res.value = std::vector<Ref3D>{Ref3D(coords)};
+                    }
+                } else if (bop.kind == oREL && oREL == aop.kind) {
+                    res.kind = oREL;
+                    if (!aop.value.is_null() and !bop.value.is_null()) {
+                        ASSERT(aop.value.is<std::vector<Ref3D>>());
+                        ASSERT(bop.value.is<std::vector<Ref3D>>());
+                        auto aref = aop.value.cast<std::vector<Ref3D>>();
+                        auto bref = bop.value.cast<std::vector<Ref3D>>();
+                        ASSERT(aref.size() == 1);
+                        ASSERT(bref.size() == 1);
+                        ASSERT(bop.value.is<std::vector<Ref3D>>());
+                        auto coords = do_box_funcs(tIsectFuncs,
+                                                   aref[0].coords,
+                                                   bref[0].coords);
+                        auto& relfa = aref[0].relflags;
+                        auto& relfb = aref[0].relflags;
+                        if (relfa == relfb) {
+                            res.value = std::vector<Ref3D>{Ref3D(coords, relfa)};
+                        }
+                    }
+                } else {
+                    //pass
+                }
+                stack.push_back(res);
+                if (blah) { pprint("tIsect post", stack); }
+            } else if (opcode == 0x10) { // tList
+                if (blah) { pprint("tList pre", stack); }
+                ASSERT(stack.size() >= 2);
+                auto bop = utils::pop(stack);
+                auto aop = utils::pop(stack);
+                char sym = ',';
+                int rank = 80; //////////////////// check //////////////
+                std::string otext;
+                otext.append(aop.rank < rank ?
+                             aop.text:
+                             format("(%s)", aop.text));
+                otext.push_back(sym);
+                otext.append(bop.rank < rank ?
+                             bop.text:
+                             format("(%s)", bop.text));
+                auto res = Operand(oREF, nullptr, rank, otext);
+                if (bop.kind == oERR or aop.kind == oERR) {
+                    res.kind = oERR;
+                } else if ((bop.kind==oREF||bop.kind==oREL) &&
+                           (aop.kind==oREF||aop.kind==oREL)) {
+                    res.kind = oREF;
+                    if (aop.kind == oREL or bop.kind == oREL) {
+                        res.kind = oREL;
+                    }
+                    if (!aop.value.is_null() and !bop.value.is_null()) {
+                        ASSERT(aop.value.is<std::vector<Ref3D>>());
+                        ASSERT(bop.value.is<std::vector<Ref3D>>());
+                        auto aref = aop.value.cast<std::vector<Ref3D>>();
+                        auto bref = bop.value.cast<std::vector<Ref3D>>();
+                        ASSERT(aref.size() >= 1);
+                        ASSERT(bref.size() == 1);
+                        aref.push_back(bref[0]);
+                    }
+                } else {
+                    //pass
+                }
+                stack.push_back(std::move(res));
+                if (blah) { pprint("tList post", stack); }
+            } else if (opcode == 0x11) { // tRange
+                if (blah) { pprint("tRange pre", stack); }
+                ASSERT(stack.size() >= 2);
+                auto bop = utils::pop(stack);
+                auto aop = utils::pop(stack);
+                char sym = ',';
+                int rank = 80; //////////////////// check //////////////
+                std::string otext;
+                otext.append(aop.rank < rank ?
+                             aop.text:
+                             format("(%s)", aop.text));
+                otext.push_back(sym);
+                otext.append(bop.rank < rank ?
+                             bop.text:
+                             format("(%s)", bop.text));
+                auto res = Operand(oREF, nullptr, rank, otext);
+                if (bop.kind == oERR or aop.kind == oERR) {
+                    res = oERR;
+                } else if (bop.kind == oREF and oREF == aop.kind) {
+                    if (!aop.value.is_null() and !bop.value.is_null()) {
+                        ASSERT(aop.value.is<std::vector<Ref3D>>());
+                        ASSERT(bop.value.is<std::vector<Ref3D>>());
+                        auto aref = aop.value.cast<std::vector<Ref3D>>();
+                        auto bref = bop.value.cast<std::vector<Ref3D>>();
+                        ASSERT(aref.size() == 1);
+                        ASSERT(bref.size() == 1);
+                        auto coords = do_box_funcs(tRangeFuncs, aref[0].coords,
+                                                   bref[0].coords);
+                        res.value = std::vector<Ref3D>{Ref3D(coords)};
+                    }
+                } else if (bop.kind == oREL and oREL == aop.kind) {
+                    res.kind = oREL;
+                    if (!aop.value.is_null() and !bop.value.is_null()) {
+                        ASSERT(aop.value.is<std::vector<Ref3D>>());
+                        ASSERT(bop.value.is<std::vector<Ref3D>>());
+                        auto aref = aop.value.cast<std::vector<Ref3D>>();
+                        auto bref = bop.value.cast<std::vector<Ref3D>>();
+                        ASSERT(aref.size() == 1);
+                        ASSERT(bref.size() == 1);
+                        auto coords = do_box_funcs(tRangeFuncs,
+                                                   aref[0].coords, bref[0].coords);
+                        auto& relfa = aref[0].relflags;
+                        auto& relfb = bref[0].relflags;
+                        if (relfa == relfb) {
+                            res.value = std::vector<Ref3D>{Ref3D(coords, relfa)};
+                        }
+                    }
+                } else {
+                    //pass
+                }
+                stack.push_back(res);
+                if (blah) { pprint("tRange post", stack); }
+            } else if (0x12 <= opcode <= 0x14) { // tUplus, tUminus, tPercent
+                do_unaryop(opcode, oNUM, stack);
+            } else if (opcode == 0x15) { // tParen
                 // source cosmetics
-                pass
-            elif opcode == 0x16: // tMissArg
-                spush(Operand(oMSNG, None, LEAF_RANK, ''))
-            elif opcode == 0x17: // tStr
-                if bv <= 70:
-                    strg, newpos = unpack_string_update_pos(
-                                        data, pos+1, bk.encoding, lenlen=1)
-                else:
-                    strg, newpos = unpack_unicode_update_pos(
-                                        data, pos+1, lenlen=1)
-                sz = newpos - pos
-                if blah: print("   sz=%d strg=%r" % (sz, strg), file=bk.logfile)
-                text = '"' + strg.replace('"', '""') + '"'
-                spush(Operand(oSTRG, strg, LEAF_RANK, text))
-            elif opcode == 0x18: // tExtended
+                //pass
+            } else if (opcode == 0x16) { // tMissArg
+                stack.push_back(Operand(oMSNG, nullptr, LEAF_RANK, ""));
+            } else if (opcode == 0x17) { // tStr
+                std::string strg;
+                int newpos;
+                if (bv <= 70) {
+                    tie(strg, newpos) = unpack_string_update_pos(
+                                            data, pos+1, bk->encoding, 1, -1);
+                } else {
+                    tie(strg, newpos) = unpack_unicode_update_pos(
+                                            data, pos+1, 1, -1);
+                }
+                int sz = newpos - pos;
+                if (blah) { pprint("   sz=%d strg=%s", sz, strg); }
+                // text = '"' + strg.replace('"', '""') + '"';
+                auto text = format("\"%s\"", strutil::replace(strg, "\"", "\"\""));
+                stack.push_back(Operand(oSTRG, strg, LEAF_RANK, text));
+            } else if (opcode == 0x18) { // tExtended
                 // new with BIFF 8
-                assert bv >= 80
+                ASSERT(bv >= 80);
                 // not in OOo docs
-                raise FormulaError("tExtended token not implemented")
-            elif opcode == 0x19: // tAttr
-                subop, nc = unpack("<BH", data[pos+1:pos+4])
-                subname = tAttrNames.get(subop, "??Unknown??")
-                if subop == 0x04: // Choose
-                    sz = nc * 2 + 6
-                elif subop == 0x10: // Sum (single arg)
-                    sz = 4
-                    if blah: print("tAttrSum", stack, file=bk.logfile)
-                    assert len(stack) >= 1
-                    aop = stack[-1]
-                    otext = 'SUM(%s)' % aop.text
-                    stack[-1] = Operand(oNUM, None, FUNC_RANK, otext)
-                else:
-                    sz = 4
-                if blah:
-                    print("   subop=%02xh subname=t%s sz=%d nc=%02xh" \
-                        % (subop, subname, sz, nc), file=bk.logfile)
-            elif 0x1A <= opcode <= 0x1B: // tSheet, tEndSheet
-                assert bv < 50
-                raise FormulaError("tSheet & tEndsheet tokens not implemented")
-            elif 0x1C <= opcode <= 0x1F: // tErr, tBool, tInt, tNum
-                inx = opcode - 0x1C
-                nb = [1, 1, 2, 8][inx]
-                kind = [oERR, oBOOL, oNUM, oNUM][inx]
-                value, = unpack("<" + "BBHd"[inx], data[pos+1:pos+1+nb])
-                if inx == 2: // tInt
-                    value = float(value)
-                    text = str(value)
-                elif inx == 3: // tNum
-                    text = str(value)
-                elif inx == 1: // tBool
-                    text = ('FALSE', 'TRUE')[value]
-                else:
-                    text = '"' +error_text_from_code[value] + '"'
-                spush(Operand(kind, value, LEAF_RANK, text))
-            else:
-                raise FormulaError("Unhandled opcode: 0x%02x" % opcode)
-            if sz <= 0:
-                raise FormulaError("Size not set for opcode 0x%02x" % opcode)
-            pos += sz
-            continue
-        if opcode == 0x00: // tArray
-            spush(unk_opnd)
-        elif opcode == 0x01: // tFunc
-            nb = 1 + int(bv >= 40)
-            funcx = unpack("<" + " BH"[nb], data[pos+1:pos+1+nb])[0]
-            func_attrs = func_defs.get(funcx, None)
-            if not func_attrs:
-                print("*** formula/tFunc unknown FuncID:%d" \
-                      % funcx, file=bk.logfile)
-                spush(unk_opnd)
-            else:
-                func_name, nargs = func_attrs[:2]
-                if blah:
-                    print("    FuncID=%d name=%s nargs=%d" \
-                          % (funcx, func_name, nargs), file=bk.logfile)
-                assert len(stack) >= nargs
-                if nargs:
-                    argtext = listsep.join([arg.text for arg in stack[-nargs:]])
-                    otext = "%s(%s)" % (func_name, argtext)
-                    del stack[-nargs:]
-                else:
-                    otext = func_name + "()"
-                res = Operand(oUNK, None, FUNC_RANK, otext)
-                spush(res)
-        elif opcode == 0x02: //tFuncVar
-            nb = 1 + int(bv >= 40)
-            nargs, funcx = unpack("<B" + " BH"[nb], data[pos+1:pos+2+nb])
-            prompt, nargs = divmod(nargs, 128)
-            macro, funcx = divmod(funcx, 32768)
-            if blah:
-                print("   FuncID=%d nargs=%d macro=%d prompt=%d" \
-                      % (funcx, nargs, macro, prompt), file=bk.logfile)
-            func_attrs = func_defs.get(funcx, None)
-            if not func_attrs:
-                print("*** formula/tFuncVar unknown FuncID:%d" \
-                      % funcx, file=bk.logfile)
-                spush(unk_opnd)
-            else:
-                func_name, minargs, maxargs = func_attrs[:3]
-                if blah:
-                    print("    name: %r, min~max args: %d~%d" \
-                        % (func_name, minargs, maxargs), file=bk.logfile)
-                assert minargs <= nargs <= maxargs
-                assert len(stack) >= nargs
-                assert len(stack) >= nargs
+                throw FormulaError("tExtended token not implemented");
+            } else if (opcode == 0x19) { // tAttr
+                //subop, nc = unpack("<BH", data[pos+1:pos+4])
+                int subop = utils::as_uint8(data, pos+1);
+                int nc = utils::as_uint16(data, pos+2);
+                auto subname = utils::getelse(tAttrNames,
+                                              subop, "??Unknown??");
+                int sz;
+                if (subop == 0x04) { // Choose
+                    sz = nc * 2 + 6;
+                } else if (subop == 0x10) { // Sum (single arg)
+                    sz = 4;
+                    if (blah) { pprint("tAttrSum", stack); }
+                    ASSERT(stack.size() >= 1);
+                    auto aop = stack.back();
+                    auto otext = format("SUM(%s)", aop.text);
+                    stack[stack.size()-1] = Operand(oNUM, nullptr, FUNC_RANK, otext);
+                } else {
+                    sz = 4;
+                }
+                if (blah) {
+                    pprint("   subop=%02xh subname=t%s sz=%d nc=%02xh",
+                           subop, subname, sz, nc);
+                }
+            } else if (0x1A <= opcode <= 0x1B) { // tSheet, tEndSheet
+                ASSERT(bv < 50);
+                throw FormulaError("tSheet & tEndsheet tokens not implemented");
+            } else if (0x1C <= opcode <= 0x1F) { // tErr, tBool, tInt, tNum
+                int inx = opcode - 0x1C;
+                if (inx == 2) { // tInt
+                    int kind = oNUM;
+                    int value = utils::as_uint16(data, pos+1);
+                    auto text = std::to_string(value);
+                    stack.push_back(Operand(kind, value, LEAF_RANK, text));
+                } else if (inx == 3) { // tNum
+                    int kind = oNUM;
+                    double value = utils::as_double(data, pos+1);
+                    auto text = std::to_string(value);
+                    stack.push_back(Operand(kind, value, LEAF_RANK, text));
+                } else if (inx == 1) { // tBool
+                    int kind = oBOOL;
+                    int value = utils::as_uint8(data, pos+1);
+                    std::string text = value ? "TRUE": "FALSE";
+                    stack.push_back(Operand(kind, value, LEAF_RANK, text));
+                } else {
+                    int kind = oERR;
+                    int value = utils::as_uint8(data, pos+1);
+                    auto text = format("\"%s\"", error_text_from_code.at(value));
+                    stack.push_back(Operand(kind, value, LEAF_RANK, text));
+                }
+            } else {
+                throw FormulaError(format("Unhandled opcode: 0x%02x", opcode));
+            }
+            if (sz <= 0) {
+                throw FormulaError(format("Size not set for opcode 0x%02x", opcode));
+            }
+            pos += sz;
+            continue;
+        }
+        if (opcode == 0x00) { // tArray
+            stack.push_back(unk_opnd);
+        } else if (opcode == 0x01) { // tFunc
+            int funcx;
+            if (bv >= 40) {
+                funcx = utils::as_uint16(data, pos+1);
+            } else {
+                funcx = utils::as_uint8(data, pos+1);
+            }
+            const auto& it = func_defs.find(funcx);
+            if (it == func_defs.end()) {
+                pprint("*** formula/tFunc unknown FuncID:%d",
+                       funcx);
+                stack.push_back(unk_opnd);
+            } else {
+                const auto& func_attrs = it->second;
+                auto func_name = std::get<0>(func_attrs);
+                auto nargs = std::get<1>(func_attrs);
+                if (blah) {
+                    pprint("    FuncID=%d name=%s nargs=%d",
+                           funcx, func_name, nargs);
+                }
+                ASSERT(stack.size() >= nargs);
+                std::string otext;
+                if (nargs) {
+                    std::string argtext;
+                    for (int i = stack.size()-nargs; i < stack.size(); ++i) {
+                        argtext.append(stack[i].text);
+                        if (i < stack.size()-1)
+                            argtext.push_back(listsep);
+                    }
+                    otext = format("%s(%s)", func_name, argtext);
+                    for (int i = 0; i < nargs; ++i) {
+                        stack.pop_back();
+                    }
+                } else {
+                    otext = func_name + "()";
+                }
+                auto res = Operand(oUNK, nullptr, FUNC_RANK, otext);
+                stack.push_back(res);
+            }
+        } else if (opcode == 0x02) { //tFuncVar
+            int nargs = utils::as_uint8(data, pos+1);
+            int funcx;
+            if (bv >= 40) {
+                funcx = utils::as_uint16(data, pos+1);
+            } else {
+                funcx = utils::as_uint8(data, pos+1);
+            }
+            // prompt, nargs = divmod(nargs, 128)
+            int prompt = nargs / 128;
+            nargs      = nargs % 128;
+            // macro, funcx = divmod(funcx, 32768)
+            int macro = funcx / 32768;
+            funcx     = funcx % 32768;
+            if (blah) {
+                pprint("   FuncID=%d nargs=%d macro=%d prompt=%d",
+                       funcx, nargs, macro, prompt);
+            }
+            auto func_attrs_it = func_defs.find(funcx);
+            if (func_attrs_it == func_defs.end()) {
+                pprint("*** formula/tFuncVar unknown FuncID:%d", funcx);
+                stack.push_back(unk_opnd);
+            } else {
+                auto func_attrs = func_attrs_it->second;
+                std::string func_name = std::get<0>(func_attrs);
+                int minargs           = std::get<1>(func_attrs);
+                int maxargs           = std::get<2>(func_attrs);
+                if (blah) {
+                    pprint("    name:%s, min~max args:%d~%d",
+                           func_name, minargs, maxargs);
+                }
+                ASSERT(minargs <= nargs && nargs <= maxargs);
+                ASSERT(stack.size() >= nargs);
+                ASSERT(stack.size() >= nargs);
                 argtext = listsep.join([arg.text for arg in stack[-nargs:]])
                 otext = "%s(%s)" % (func_name, argtext)
-                res = Operand(oUNK, None, FUNC_RANK, otext)
-                if funcx == 1: // IF
-                    testarg = stack[-nargs]
+                res = Operand(oUNK, nullptr, FUNC_RANK, otext)
+                if (funcx == 1) { // IF
+                    testarg = stack[-nargs];
                     if testarg.kind not in (oNUM, oBOOL):
-                        if blah and testarg.kind != oUNK:
-                            print("IF testarg kind?", file=bk.logfile)
-                    elif testarg.value not in (0, 1):
-                        if blah and testarg.value is not None:
-                            print("IF testarg value?", file=bk.logfile)
-                    else:
-                        if nargs == 2 and not testarg.value:
+                        if (blah and testarg.kind != oUNK) {
+                            pprint("IF testarg kind?")
+                        }
+                    } else if (testarg.value not in (0, 1):
+                        if (blah and testarg.value is not nullptr) {
+                            pprint("IF testarg value?")
+                        }
+                    } else {
+                        if (nargs == 2 and not testarg.value) {
                             // IF(FALSE, tv) => FALSE
-                            res.kind, res.value = oBOOL, 0
-                        else:
+                            res.kind, res.value = oBOOL, 0;
+                        } else {
                             respos = -nargs + 2 - int(testarg.value)
                             chosen = stack[respos]
                             if chosen.kind == oMSNG:
                                 res.kind, res.value = oNUM, 0
-                            else:
-                                res.kind, res.value = chosen.kind, chosen.value
-                        if blah:
-                            print("$$$$$$ IF => constant", file=bk.logfile)
-                elif funcx == 100: // CHOOSE
+                            } else {
+                                res.kind, res.value = chosen.kind, chosen.value;
+                            }
+                        }
+                        if (blah) {
+                            pprint("$$$$$$ IF => constant");
+                        }
+                    }
+                } else if (funcx == 100) { // CHOOSE
                     testarg = stack[-nargs]
-                    if testarg.kind == oNUM:
-                        if 1 <= testarg.value < nargs:
+                    if (testarg.kind == oNUM) {
+                        if (1 <= testarg.value < nargs) {
                             chosen = stack[-nargs + int(testarg.value)]
                             if chosen.kind == oMSNG:
                                 res.kind, res.value = oNUM, 0
-                            else:
-                                res.kind, res.value = chosen.kind, chosen.value
-                del stack[-nargs:]
-                spush(res)
-        elif opcode == 0x03: //tName
+                            } else {
+                                res.kind, res.value = chosen.kind, chosen.value;
+                            }
+                        }
+                    }
+                }
+                del stack[-nargs:];
+                stack.push_back(res);
+            }
+        } else if (opcode == 0x03) { //tName
             tgtnamex = unpack("<H", data[pos+1:pos+3])[0] - 1
             // Only change with BIFF version is number of trailing UNUSED bytes!
-            if blah: print("   tgtnamex=%d" % tgtnamex, file=bk.logfile)
-            tgtobj = bk.name_obj_list[tgtnamex]
-            if not tgtobj.evaluated:
+            if (blah) { pprint("   tgtnamex=%d" % tgtnamex); }
+            tgtobj = bk.name_obj_list[tgtnamex];
+            if (not tgtobj.evaluated) {
                 ////// recursive //////
-                evaluate_name_formula(bk, tgtobj, tgtnamex, blah, level+1)
+                evaluate_name_formula(bk, tgtobj, tgtnamex, blah, level+1);
+            }
             if tgtobj.macro or tgtobj.binary \
             or tgtobj.any_err:
-                if blah:
+                if (blah) {
                     tgtobj.dump(
                         bk.logfile,
                         header="!!! tgtobj has problems!!!",
                         footer="-----------       --------",
-                        )
-                res = Operand(oUNK, None)
+                        );
+                }
+                res = Operand(oUNK, nullptr);
                 any_err = any_err or tgtobj.macro or tgtobj.binary or tgtobj.any_err
                 any_rel = any_rel or tgtobj.any_rel
-            else:
+            } else {
                 assert len(tgtobj.stack) == 1
-                res = copy.deepcopy(tgtobj.stack[0])
-            res.rank = LEAF_RANK
-            if tgtobj.scope == -1:
-                res.text = tgtobj.name
-            else:
+                res = copy.deepcopy(tgtobj.stack[0]);
+            }
+            res.rank = LEAF_RANK;
+            if (tgtobj.scope == -1) {
+                res.text = tgtobj.name;
+            } else {
                 res.text = "%s!%s" \
-                           % (bk._sheet_names[tgtobj.scope], tgtobj.name)
-            if blah:
-                print("    tName: setting text to", repr(res.text), file=bk.logfile)
-            spush(res)
-        elif opcode == 0x04: // tRef
+                           % (bk._sheet_names[tgtobj.scope], tgtobj.name);
+            }
+            if (blah) {
+                pprint("    tName:setting text to", repr(res.text));
+            }
+            stack.push_back(res);
+        } else if (opcode == 0x04) { // tRef
             // not_in_name_formula(op, oname)
-            res = get_cell_addr(data, pos+1, bv, reldelta)
-            if blah: print("  ", res, file=bk.logfile)
+            auto res = get_cell_addr(data, pos+1, bv, reldelta);
+            if (blah) { pprint("  ", res); }
             rowx, colx, row_rel, col_rel = res
             shx1 = shx2 = 0 ////////////// N.B. relative to the CURRENT SHEET
             any_rel = 1
             coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1)
-            if blah: print("   ", coords, file=bk.logfile)
-            res = Operand(oUNK, None)
-            if optype == 1:
-                relflags = (1, 1, row_rel, row_rel, col_rel, col_rel)
-                res = Operand(oREL, [Ref3D(coords + relflags)])
-            spush(res)
-        elif opcode == 0x05: // tArea
+            if (blah) { pprint("   ", coords); }
+            res = Operand(oUNK, nullptr);
+            if (optype == 1) {
+                relflags = (1, 1, row_rel, row_rel, col_rel, col_rel);
+                res = Operand(oREL, [Ref3D(coords + relflags)]);
+            }
+            stack.push_back(res);
+        } else if (opcode == 0x05) { // tArea
             // not_in_name_formula(op, oname)
             res1, res2 = get_cell_range_addr(data, pos+1, bv, reldelta)
-            if blah: print("  ", res1, res2, file=bk.logfile)
-            rowx1, colx1, row_rel1, col_rel1 = res1
-            rowx2, colx2, row_rel2, col_rel2 = res2
+            if (blah) { pprint("  ", res1, res2); }
+            rowx1, colx1, row_rel1, col_rel1 = res1;
+            rowx2, colx2, row_rel2, col_rel2 = res2;
             shx1 = shx2 = 0 ////////////// N.B. relative to the CURRENT SHEET
-            any_rel = 1
-            coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1)
-            if blah: print("   ", coords, file=bk.logfile)
-            res = Operand(oUNK, None)
-            if optype == 1:
-                relflags = (1, 1, row_rel1, row_rel2, col_rel1, col_rel2)
-                res = Operand(oREL, [Ref3D(coords + relflags)])
-            spush(res)
-        elif opcode == 0x06: // tMemArea
-            not_in_name_formula(op, oname)
-        elif opcode == 0x09: // tMemFunc
-            nb = unpack("<H", data[pos+1:pos+3])[0]
-            if blah: print("  %d bytes of cell ref formula" % nb, file=bk.logfile)
+            any_rel = 1;
+            coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1);
+            if (blah) { pprint("   ", coords); }
+            auto res = Operand(oUNK, nullptr);
+            if (optype == 1) {
+                relflags = (1, 1, row_rel1, row_rel2, col_rel1, col_rel2);
+                res = Operand(oREL, [Ref3D(coords + relflags)]);
+            }
+            stack.push_back(move(res));
+        } else if (opcode == 0x06) { // tMemArea
+            not_in_name_formula(op, oname);
+        } else if (opcode == 0x09) { // tMemFunc
+            nb = unpack("<H", data[pos+1:pos+3])[0];
+            if (blah) { pprint("  %d bytes of cell ref formula", nb); }
             // no effect on stack
-        elif opcode == 0x0C: //tRefN
-            not_in_name_formula(op, oname)
+        } else if (opcode == 0x0C) { //tRefN
+            not_in_name_formula(op, oname);
             // res = get_cell_addr(data, pos+1, bv, reldelta=1)
             // // note *ALL* tRefN usage has signed offset for relative addresses
             // any_rel = 1
-            // if blah: print >> bk.logfile, "   ", res
-            // spush(res)
-        elif opcode == 0x0D: //tAreaN
-            not_in_name_formula(op, oname)
+            // if (blah) { print >> bk.logfile, "   ", res
+            // stack.push_back(res)
+        } else if (opcode == 0x0D) { //tAreaN
+            not_in_name_formula(op, oname);
             // res = get_cell_range_addr(data, pos+1, bv, reldelta=1)
             // // note *ALL* tAreaN usage has signed offset for relative addresses
             // any_rel = 1
-            // if blah: print >> bk.logfile, "   ", res
-        elif opcode == 0x1A: // tRef3d
-            if bv >= 80:
-                res = get_cell_addr(data, pos+3, bv, reldelta)
-                refx = unpack("<H", data[pos+1:pos+3])[0]
-                shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
-            else:
-                res = get_cell_addr(data, pos+15, bv, reldelta)
+            // if (blah) { print >> bk.logfile, "   ", res
+        } else if (opcode == 0x1A) { // tRef3d
+            if (bv >= 80) {
+                res = get_cell_addr(data, pos+3, bv, reldelta);
+                refx = unpack("<H", data[pos+1:pos+3])[0];
+                shx1, shx2 = get_externsheet_local_range(bk, refx, blah);
+            } else {
+                res = get_cell_addr(data, pos+15, bv, reldelta);
+                raw_extshtx, raw_shx1, raw_shx2 = \
+                             unpack("<hxxxxxxxxhh", data[pos+1:pos+15]);
+                if (blah) {
+                    pprint("tRef3d", raw_extshtx, raw_shx1, raw_shx2);
+                }
+                shx1, shx2 = get_externsheet_local_range_b57(
+                                bk, raw_extshtx, raw_shx1, raw_shx2, blah);
+            }
+            rowx, colx, row_rel, col_rel = res;
+            is_rel = row_rel || col_rel;
+            any_rel = any_rel || is_rel;
+            coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1);
+            any_err |= shx1 < -1;
+            if (blah) {
+                pprint("   %s", coords);
+            }
+            auto res = Operand(oUNK, nullptr);
+            if (is_rel {
+                relflags = (0, 0, row_rel, row_rel, col_rel, col_rel);
+                ref3d = Ref3D(coords + relflags);
+                res.kind = oREL;
+                res.text = rangename3drel(bk, ref3d, r1c1=1);
+            } else {
+                ref3d = Ref3D(coords);
+                res.kind = oREF;
+                res.text = rangename3d(bk, ref3d);
+            }
+            res.rank = LEAF_RANK;
+            if (optype == 1) {
+                res.value = [ref3d];
+            }
+            stack.push_back(res);;
+        } else if (opcode == 0x1B) { // tArea3d
+            if (bv >= 80) {
+                res1, res2 = get_cell_range_addr(data, pos+3, bv, reldelta);
+                refx = unpack("<H", data[pos+1:pos+3])[0];
+                shx1, shx2 = get_externsheet_local_range(bk, refx, blah);
+            } else {
+                res1, res2 = get_cell_range_addr(data, pos+15, bv, reldelta);
                 raw_extshtx, raw_shx1, raw_shx2 = \
                              unpack("<hxxxxxxxxhh", data[pos+1:pos+15])
-                if blah:
-                    print("tRef3d", raw_extshtx, raw_shx1, raw_shx2, file=bk.logfile)
+                if (blah) {
+                    pprint("tArea3d", raw_extshtx, raw_shx1, raw_shx2);
+                }
                 shx1, shx2 = get_externsheet_local_range_b57(
-                                bk, raw_extshtx, raw_shx1, raw_shx2, blah)
-            rowx, colx, row_rel, col_rel = res
-            is_rel = row_rel or col_rel
-            any_rel = any_rel or is_rel
-            coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1)
-            any_err |= shx1 < -1
-            if blah: print("   ", coords, file=bk.logfile)
-            res = Operand(oUNK, None)
-            if is_rel:
-                relflags = (0, 0, row_rel, row_rel, col_rel, col_rel)
-                ref3d = Ref3D(coords + relflags)
-                res.kind = oREL
-                res.text = rangename3drel(bk, ref3d, r1c1=1)
-            else:
-                ref3d = Ref3D(coords)
-                res.kind = oREF
-                res.text = rangename3d(bk, ref3d)
-            res.rank = LEAF_RANK
-            if optype == 1:
-                res.value = [ref3d]
-            spush(res)
-        elif opcode == 0x1B: // tArea3d
-            if bv >= 80:
-                res1, res2 = get_cell_range_addr(data, pos+3, bv, reldelta)
-                refx = unpack("<H", data[pos+1:pos+3])[0]
-                shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
-            else:
-                res1, res2 = get_cell_range_addr(data, pos+15, bv, reldelta)
-                raw_extshtx, raw_shx1, raw_shx2 = \
-                             unpack("<hxxxxxxxxhh", data[pos+1:pos+15])
-                if blah:
-                    print("tArea3d", raw_extshtx, raw_shx1, raw_shx2, file=bk.logfile)
-                shx1, shx2 = get_externsheet_local_range_b57(
-                                bk, raw_extshtx, raw_shx1, raw_shx2, blah)
-            any_err |= shx1 < -1
-            rowx1, colx1, row_rel1, col_rel1 = res1
-            rowx2, colx2, row_rel2, col_rel2 = res2
+                                bk, raw_extshtx, raw_shx1, raw_shx2, blah);
+            }
+            any_err |= shx1 < -1;
+            rowx1, colx1, row_rel1, col_rel1 = res1;
+            rowx2, colx2, row_rel2, col_rel2 = res2;
             is_rel = row_rel1 or col_rel1 or row_rel2 or col_rel2
             any_rel = any_rel or is_rel
             coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1)
-            if blah: print("   ", coords, file=bk.logfile)
-            res = Operand(oUNK, None)
-            if is_rel:
+            if (blah) {
+                pprint("   %s", coords);
+            }
+            res = Operand(oUNK, nullptr);
+            if (is_rel) {
                 relflags = (0, 0, row_rel1, row_rel2, col_rel1, col_rel2)
                 ref3d = Ref3D(coords + relflags)
-                res.kind = oREL
+                res.kind = oREL;
                 res.text = rangename3drel(bk, ref3d, r1c1=1)
-            else:
-                ref3d = Ref3D(coords)
-                res.kind = oREF
-                res.text = rangename3d(bk, ref3d)
-            res.rank = LEAF_RANK
-            if optype == 1:
-                res.value = [ref3d]
-
-            spush(res)
-        elif opcode == 0x19: // tNameX
-            dodgy = 0
-            res = Operand(oUNK, None)
-            if bv >= 80:
+            } else {
+                ref3d = Ref3D(coords);
+                res.kind = oREF;
+                res.text = rangename3d(bk, ref3d);
+            }
+            res.rank = LEAF_RANK;
+            if (optype == 1) {
+                res.value = [ref3d];
+            }
+            stack.push_back(res);
+        } else if (opcode == 0x19) { // tNameX
+            dodgy = 0;
+            res = Operand(oUNK, nullptr);
+            if (bv >= 80) {
                 refx, tgtnamex = unpack("<HH", data[pos+1:pos+5])
-                tgtnamex -= 1
-                origrefx = refx
-            else:
-                refx, tgtnamex = unpack("<hxxxxxxxxH", data[pos+1:pos+13])
-                tgtnamex -= 1
-                origrefx = refx
-                if refx > 0:
-                    refx -= 1
-                elif refx < 0:
-                    refx = -refx - 1
-                else:
-                    dodgy = 1
-            if blah:
-                print("   origrefx=%d refx=%d tgtnamex=%d dodgy=%d" \
-                    % (origrefx, refx, tgtnamex, dodgy), file=bk.logfile)
-            if tgtnamex == namex:
-                if blah: print("!!!! Self-referential !!!!", file=bk.logfile)
-                dodgy = any_err = 1
-            if not dodgy:
-                if bv >= 80:
-                    shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
-                elif origrefx > 0:
+                tgtnamex -= 1;
+                origrefx = refx;
+            } else {
+                refx, tgtnamex = unpack("<hxxxxxxxxH", data[pos+1:pos+13]);
+                tgtnamex -= 1;
+                origrefx = refx;
+                if (refx > 0) {
+                    refx -= 1;
+                } else if (refx < 0) {
+                    refx = -refx - 1;
+                } else {
+                    dodgy = 1;
+                }
+            }
+            if (blah) {
+                pprint("   origrefx=%d refx=%d tgtnamex=%d dodgy=%d" \
+                    % (origrefx, refx, tgtnamex, dodgy))
+            }
+            if (tgtnamex == namex) {
+                if (blah) {  
+                    pprint("!!!! Self-referential !!!!");
+                }
+                dodgy = any_err = 1;
+            }
+            if (not dodgy) {
+                if (bv >= 80) {
+                    shx1, shx2 = get_externsheet_local_range(bk, refx, blah);
+                } else if (origrefx > 0) {
                     shx1, shx2 = (-4, -4) // external ref
-                else:
+                } else {
                     exty = bk._externsheet_type_b57[refx]
-                    if exty == 4: // non-specific sheet in own doc't
+                    if (exty == 4) { // non-specific sheet in own doc't
                         shx1, shx2 = (-1, -1) // internal, any sheet
-                    else:
-                        shx1, shx2 = (-666, -666)
-            if dodgy or shx1 < -1:
+                    } else {
+                        shx1, shx2 = (-666, -666);
+                    }
+                }
+            }
+            if (dodgy || shx1 < -1) {
                 otext = "<<Name //%d in external(?) file //%d>>" \
                         % (tgtnamex, origrefx)
-                res = Operand(oUNK, None, LEAF_RANK, otext)
-            else:
-                tgtobj = bk.name_obj_list[tgtnamex]
-                if not tgtobj.evaluated:
+                res = Operand(oUNK, nullptr, LEAF_RANK, otext);
+            } else {
+                tgtobj = bk.name_obj_list[tgtnamex];
+                if (!tgtobj.evaluated) {
                     ////// recursive //////
-                    evaluate_name_formula(bk, tgtobj, tgtnamex, blah, level+1)
-                if tgtobj.macro or tgtobj.binary \
-                or tgtobj.any_err:
-                    if blah:
+                    evaluate_name_formula(bk, tgtobj, tgtnamex, blah, level+1);
+                }
+                if (tgtobj.macro || tgtobj.binary ||
+                    tgtobj.any_err) {
+                    if (blah) {
                         tgtobj.dump(
                             bk.logfile,
                             header="!!! bad tgtobj !!!",
                             footer="------------------",
-                            )
-                    res = Operand(oUNK, None)
+                            );
+                    }
+                    res = Operand(oUNK, nullptr)
                     any_err = any_err or tgtobj.macro or tgtobj.binary or tgtobj.any_err
                     any_rel = any_rel or tgtobj.any_rel
-                else:
+                } else {
                     assert len(tgtobj.stack) == 1
                     res = copy.deepcopy(tgtobj.stack[0])
-                res.rank = LEAF_RANK
-                if tgtobj.scope == -1:
-                    res.text = tgtobj.name
-                else:
+                }
+                res.rank = LEAF_RANK;
+                if (tgtobj.scope == -1) {
+                    res.text = tgtobj.name;
+                } else {
                     res.text = "%s!%s" \
                                % (bk._sheet_names[tgtobj.scope], tgtobj.name)
-                if blah:
-                    print("    tNameX: setting text to", repr(res.text), file=bk.logfile)
-            spush(res)
-        elif opcode in error_opcodes:
-            any_err = 1
-            spush(error_opnd)
-        else:
-            if blah:
-                print("FORMULA: /// Not handled yet: t" + oname, file=bk.logfile)
-            any_err = 1
-        if sz <= 0:
-            raise FormulaError("Fatal: token size is not positive")
-        pos += sz
-    any_rel = not not any_rel
-    if blah:
-        fprintf(bk.logfile, "End of formula. level=%d any_rel=%d any_err=%d stack=%r\n",
-            level, not not any_rel, any_err, stack)
-        if len(stack) >= 2:
-            print("*** Stack has unprocessed args", file=bk.logfile)
-        print(file=bk.logfile)
-    nobj.stack = stack
-    if len(stack) != 1:
-        nobj.result = None
-    else:
-        nobj.result = stack[0]
-    nobj.any_rel = any_rel
-    nobj.any_err = any_err
-    nobj.any_external = any_external
-    nobj.evaluated = 1
+                }
+                if (blah) {
+                    pprint("    tNameX: setting text to", repr(res.text));
+                }
+            }
+            stack.push_back(res);
+        } else if (opcode in error_opcodes) {
+            any_err = 1;
+            stacks.push_back(error_opnd);
+        } else {
+            if (blah) {
+                pprint("FORMULA: /// Not handled yet: t" + oname);
+            }
+            any_err = 1;
+        }
+        if (sz <= 0) {
+            throw FormulaError("Fatal: token size is not positive");
+        }
+        pos += sz;
+    }
+    //any_rel = not not any_rel
+    if (blah) {
+        pprint("End of formula. level=%d any_rel=%d any_err=%d stack=%s\n",
+            level, not not any_rel, any_err, stack);
+        if (stack.size() >= 2) {
+            pprint("*** Stack has unprocessed args");
+        }
+    }
+    nobj.stack = stack;
+    if (stack.size() != 1 {
+        nobj.result = null_operand;
+    } else {
+        nobj.result = move(stack[0]);
+    }
+    nobj.any_rel = any_rel;
+    nobj.any_err = any_err;
+    nobj.any_external = any_external;
+    nobj.evaluated = 1;
+}
 
+/*
 //////// under construction //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def decompile_formula(bk, fmla, fmlalen,
-    fmlatype=None, browx=None, bcolx=None,
+    fmlatype=nullptr, browx=nullptr, bcolx=nullptr,
     blah=0, level=0, r1c1=0):
     if level > STACK_ALARM_LEVEL:
         blah = 1
     reldelta = fmlatype in (FMLA_TYPE_SHARED, FMLA_TYPE_NAME, FMLA_TYPE_COND_FMT, FMLA_TYPE_DATA_VAL)
     data = fmla
     bv = bk.biff_version
-    if blah:
-        print("::: decompile_formula len=%d fmlatype=%r browx=%r bcolx=%r reldelta=%d %r level=%d" \
-            % (fmlalen, fmlatype, browx, bcolx, reldelta, data, level), file=bk.logfile)
+    if (blah) {
+        pprint("::) { decompile_formula len=%d fmlatype=%s browx=%s bcolx=%s reldelta=%d %s level=%d" \
+            % (fmlalen, fmlatype, browx, bcolx, reldelta, data, level))
         hex_char_dump(data, 0, fmlalen, fout=bk.logfile)
     if level > STACK_PANIC_LEVEL:
-        raise XLRDError("Excessive indirect references in formula")
+        throw XLRDError("Excessive indirect references in formula")
     sztab = szdict[bv]
     pos = 0
     stack = []
     any_rel = 0
     any_err = 0
     any_external = 0
-    unk_opnd = Operand(oUNK, None)
-    error_opnd = Operand(oERR, None)
-    spush = stack.append
+    unk_opnd = Operand(oUNK, nullptr)
+    error_opnd = Operand(oERR, nullptr)
+    stack.push_back = stack.append;
 
     def do_binop(opcd, stk):
         assert len(stk) >= 2
         bop = stk.pop()
         aop = stk.pop()
         argdict, result_kind, func, rank, sym = binop_rules[opcd]
-        otext = ''.join([
-            '('[:aop.rank < rank],
-            aop.text,
-            ')'[:aop.rank < rank],
-            sym,
-            '('[:bop.rank < rank],
-            bop.text,
-            ')'[:bop.rank < rank],
-            ])
-        resop = Operand(result_kind, None, rank, otext)
+        std::string otext;
+        otext.append(aop.rank < rank ?
+                     aop.text:
+                     format("(%s)", aop.text));
+        otext.push_back(sym);
+        otext.append(bop.rank < rank ?
+                     bop.text:
+                     format("(%s)", bop.text));
+        resop = Operand(result_kind, nullptr, rank, otext)
         stk.append(resop)
 
     def do_unaryop(opcode, result_kind, stk):
@@ -1590,13 +1915,13 @@ def decompile_formula(bk, fmla, fmlalen,
             ')'[:aop.rank < rank],
             sym2,
             ])
-        stk.append(Operand(result_kind, None, rank, otext))
+        stk.append(Operand(result_kind, nullptr, rank, otext))
 
     def unexpected_opcode(op_arg, oname_arg):
         msg = "ERROR *** Unexpected token 0x%02x (%s) found in formula type %s" \
               % (op_arg, oname_arg, FMLA_TYPEDESCR_MAP[fmlatype])
-        print(msg, file=bk.logfile)
-        // raise FormulaError(msg)
+        pprint(msg)
+        // throw FormulaError(msg)
 
     if fmlalen == 0:
         stack = [unk_opnd]
@@ -1607,40 +1932,40 @@ def decompile_formula(bk, fmla, fmlalen,
         optype = (op & 0x60) >> 5
         if optype:
             opx = opcode + 32
-        else:
+        } else {
             opx = opcode
         oname = onames[opx] // + [" RVA"][optype]
         sz = sztab[opx]
-        if blah:
-            print("Pos:%d Op:0x%02x opname:t%s Sz:%d opcode:%02xh optype:%02xh" \
-                % (pos, op, oname, sz, opcode, optype), file=bk.logfile)
-            print("Stack =", stack, file=bk.logfile)
+        if (blah) {
+            pprint("Pos:%d Op:0x%02x opname:t%s Sz:%d opcode:%02xh optype:%02xh" \
+                % (pos, op, oname, sz, opcode, optype))
+            pprint("Stack =", stack)
         if sz == -2:
             msg = 'ERROR *** Unexpected token 0x%02x ("%s"); biff_version=%d' \
                 % (op, oname, bv)
-            raise FormulaError(msg)
+            throw FormulaError(msg)
         if _TOKEN_NOT_ALLOWED(opx, 0) & fmlatype:
             unexpected_opcode(op, oname)
         if not optype:
-            if opcode <= 0x01: // tExp
+            if opcode <= 0x01) { // tExp
                 if bv >= 30:
                     fmt = '<x2H'
-                else:
+                } else {
                     fmt = '<xHB'
                 assert pos == 0 and fmlalen == sz and not stack
                 rowx, colx = unpack(fmt, data)
                 text = "SHARED FMLA at rowx=%d colx=%d" % (rowx, colx)
-                spush(Operand(oUNK, None, LEAF_RANK, text))
+                stack.push_back(Operand(oUNK, nullptr, LEAF_RANK, text));
                 if not fmlatype & (FMLA_TYPE_CELL | FMLA_TYPE_ARRAY):
                     unexpected_opcode(op, oname)
-            elif 0x03 <= opcode <= 0x0E:
+            } else if (0x03 <= opcode <= 0x0E:
                 // Add, Sub, Mul, Div, Power
                 // tConcat
                 // tLT, ..., tNE
                 do_binop(opcode, stack)
-            elif opcode == 0x0F: // tIsect
-                if blah: print("tIsect pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
+            } else if (opcode == 0x0F) { // tIsect
+                if (blah) { pprint("tIsect pre", stack)
+                assert stack.size() >= 2
                 bop = stack.pop()
                 aop = stack.pop()
                 sym = ' '
@@ -1658,7 +1983,7 @@ def decompile_formula(bk, fmla, fmlalen,
                 res.text = otext
                 if bop.kind == oERR or aop.kind == oERR:
                     res.kind = oERR
-                elif bop.kind == oUNK or aop.kind == oUNK:
+                } else if (bop.kind == oUNK or aop.kind == oUNK:
                     // This can happen with undefined
                     // (go search in the current sheet) labels.
                     // For example =Bob Sales
@@ -1666,17 +1991,17 @@ def decompile_formula(bk, fmla, fmlalen,
                     // Evaluation of the tName token classifies it as oUNK
                     // res.kind = oREF
                     pass
-                elif bop.kind == oREF == aop.kind:
+                } else if (bop.kind == oREF == aop.kind:
                     pass
-                elif bop.kind == oREL == aop.kind:
+                } else if (bop.kind == oREL == aop.kind:
                     res.kind = oREL
-                else:
+                } else {
                     pass
-                spush(res)
-                if blah: print("tIsect post", stack, file=bk.logfile)
-            elif opcode == 0x10: // tList
-                if blah: print("tList pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
+                stack.push_back(res);
+                if (blah) { pprint("tIsect post", stack)
+            } else if (opcode == 0x10) { // tList
+                if (blah) { pprint("tList pre", stack)
+                assert stack.size() >= 2
                 bop = stack.pop()
                 aop = stack.pop()
                 sym = ','
@@ -1690,20 +2015,20 @@ def decompile_formula(bk, fmla, fmlalen,
                     bop.text,
                     ')'[:bop.rank < rank],
                     ])
-                res = Operand(oREF, None, rank, otext)
+                res = Operand(oREF, nullptr, rank, otext)
                 if bop.kind == oERR or aop.kind == oERR:
                     res.kind = oERR
-                elif bop.kind in (oREF, oREL) and aop.kind in (oREF, oREL):
+                } else if (bop.kind in (oREF, oREL) and aop.kind in (oREF, oREL):
                     res.kind = oREF
                     if aop.kind == oREL or bop.kind == oREL:
                         res.kind = oREL
-                else:
+                } else {
                     pass
-                spush(res)
-                if blah: print("tList post", stack, file=bk.logfile)
-            elif opcode == 0x11: // tRange
-                if blah: print("tRange pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
+                stack.push_back(res);
+                if (blah) { pprint("tList post", stack)
+            } else if (opcode == 0x11) { // tRange
+                if (blah) { pprint("tRange pre", stack)
+                assert stack.size() >= 2
                 bop = stack.pop()
                 aop = stack.pop()
                 sym = ':'
@@ -1717,224 +2042,224 @@ def decompile_formula(bk, fmla, fmlalen,
                     bop.text,
                     ')'[:bop.rank < rank],
                     ])
-                res = Operand(oREF, None, rank, otext)
+                res = Operand(oREF, nullptr, rank, otext)
                 if bop.kind == oERR or aop.kind == oERR:
                     res = oERR
-                elif bop.kind == oREF == aop.kind:
+                } else if (bop.kind == oREF == aop.kind:
                     pass
-                else:
+                } else {
                     pass
-                spush(res)
-                if blah: print("tRange post", stack, file=bk.logfile)
-            elif 0x12 <= opcode <= 0x14: // tUplus, tUminus, tPercent
+                stack.push_back(res);
+                if (blah) { pprint("tRange post", stack)
+            } else if (0x12 <= opcode <= 0x14) { // tUplus, tUminus, tPercent
                 do_unaryop(opcode, oNUM, stack)
-            elif opcode == 0x15: // tParen
+            } else if (opcode == 0x15) { // tParen
                 // source cosmetics
                 pass
-            elif opcode == 0x16: // tMissArg
-                spush(Operand(oMSNG, None, LEAF_RANK, ''))
-            elif opcode == 0x17: // tStr
+            } else if (opcode == 0x16) { // tMissArg
+                stack.push_back(Operand(oMSNG, nullptr, LEAF_RANK, ''));
+            } else if (opcode == 0x17) { // tStr
                 if bv <= 70:
                     strg, newpos = unpack_string_update_pos(
                                         data, pos+1, bk.encoding, lenlen=1)
-                else:
+                } else {
                     strg, newpos = unpack_unicode_update_pos(
                                         data, pos+1, lenlen=1)
                 sz = newpos - pos
-                if blah: print("   sz=%d strg=%r" % (sz, strg), file=bk.logfile)
+                if (blah) { pprint("   sz=%d strg=%s" % (sz, strg))
                 text = '"' + strg.replace('"', '""') + '"'
-                spush(Operand(oSTRG, None, LEAF_RANK, text))
-            elif opcode == 0x18: // tExtended
+                stack.push_back(Operand(oSTRG, nullptr, LEAF_RANK, text));
+            } else if (opcode == 0x18) { // tExtended
                 // new with BIFF 8
                 assert bv >= 80
                 // not in OOo docs, don't even know how to determine its length
-                raise FormulaError("tExtended token not implemented")
-            elif opcode == 0x19: // tAttr
+                throw FormulaError("tExtended token not implemented")
+            } else if (opcode == 0x19) { // tAttr
                 subop, nc = unpack("<BH", data[pos+1:pos+4])
                 subname = tAttrNames.get(subop, "??Unknown??")
-                if subop == 0x04: // Choose
+                if subop == 0x04) { // Choose
                     sz = nc * 2 + 6
-                elif subop == 0x10: // Sum (single arg)
+                } else if (subop == 0x10) { // Sum (single arg)
                     sz = 4
-                    if blah: print("tAttrSum", stack, file=bk.logfile)
-                    assert len(stack) >= 1
+                    if (blah) { pprint("tAttrSum", stack)
+                    assert stack.size() >= 1
                     aop = stack[-1]
                     otext = 'SUM(%s)' % aop.text
-                    stack[-1] = Operand(oNUM, None, FUNC_RANK, otext)
-                else:
+                    stack[-1] = Operand(oNUM, nullptr, FUNC_RANK, otext)
+                } else {
                     sz = 4
-                if blah:
-                    print("   subop=%02xh subname=t%s sz=%d nc=%02xh" \
-                        % (subop, subname, sz, nc), file=bk.logfile)
-            elif 0x1A <= opcode <= 0x1B: // tSheet, tEndSheet
+                if (blah) {
+                    pprint("   subop=%02xh subname=t%s sz=%d nc=%02xh" \
+                        % (subop, subname, sz, nc))
+            } else if (0x1A <= opcode <= 0x1B) { // tSheet, tEndSheet
                 assert bv < 50
-                raise FormulaError("tSheet & tEndsheet tokens not implemented")
-            elif 0x1C <= opcode <= 0x1F: // tErr, tBool, tInt, tNum
+                throw FormulaError("tSheet & tEndsheet tokens not implemented")
+            } else if (0x1C <= opcode <= 0x1F) { // tErr, tBool, tInt, tNum
                 inx = opcode - 0x1C
                 nb = [1, 1, 2, 8][inx]
                 kind = [oERR, oBOOL, oNUM, oNUM][inx]
                 value, = unpack("<" + "BBHd"[inx], data[pos+1:pos+1+nb])
-                if inx == 2: // tInt
+                if inx == 2) { // tInt
                     value = float(value)
                     text = str(value)
-                elif inx == 3: // tNum
+                } else if (inx == 3) { // tNum
                     text = str(value)
-                elif inx == 1: // tBool
-                    text = ('FALSE', 'TRUE')[value]
-                else:
+                } else if (inx == 1) { // tBool
+                    text = value.to_int() ? "TRUE": "FALSE";
+                } else {
                     text = '"' +error_text_from_code[value] + '"'
-                spush(Operand(kind, None, LEAF_RANK, text))
-            else:
-                raise FormulaError("Unhandled opcode: 0x%02x" % opcode)
+                stack.push_back(Operand(kind, nullptr, LEAF_RANK, text));
+            } else {
+                throw FormulaError("Unhandled opcode) { 0x%02x" % opcode)
             if sz <= 0:
-                raise FormulaError("Size not set for opcode 0x%02x" % opcode)
+                throw FormulaError("Size not set for opcode 0x%02x" % opcode)
             pos += sz
             continue
-        if opcode == 0x00: // tArray
-            spush(unk_opnd)
-        elif opcode == 0x01: // tFunc
+        if opcode == 0x00) { // tArray
+            stack.push_back(unk_opnd);
+        } else if (opcode == 0x01) { // tFunc
             nb = 1 + int(bv >= 40)
             funcx = unpack("<" + " BH"[nb], data[pos+1:pos+1+nb])[0]
-            func_attrs = func_defs.get(funcx, None)
+            func_attrs = func_defs.get(funcx, nullptr)
             if not func_attrs:
-                print("*** formula/tFunc unknown FuncID:%d" % funcx, file=bk.logfile)
-                spush(unk_opnd)
-            else:
+                pprint("*** formula/tFunc unknown FuncID:%d" % funcx)
+                stack.push_back(unk_opnd);
+            } else {
                 func_name, nargs = func_attrs[:2]
-                if blah:
-                    print("    FuncID=%d name=%s nargs=%d" \
-                          % (funcx, func_name, nargs), file=bk.logfile)
-                assert len(stack) >= nargs
+                if (blah) {
+                    pprint("    FuncID=%d name=%s nargs=%d" \
+                          % (funcx, func_name, nargs))
+                assert stack.size() >= nargs
                 if nargs:
                     argtext = listsep.join([arg.text for arg in stack[-nargs:]])
                     otext = "%s(%s)" % (func_name, argtext)
                     del stack[-nargs:]
-                else:
+                } else {
                     otext = func_name + "()"
-                res = Operand(oUNK, None, FUNC_RANK, otext)
-                spush(res)
-        elif opcode == 0x02: //tFuncVar
+                res = Operand(oUNK, nullptr, FUNC_RANK, otext)
+                stack.push_back(res);
+        } else if (opcode == 0x02) { //tFuncVar
             nb = 1 + int(bv >= 40)
             nargs, funcx = unpack("<B" + " BH"[nb], data[pos+1:pos+2+nb])
             prompt, nargs = divmod(nargs, 128)
             macro, funcx = divmod(funcx, 32768)
-            if blah:
-                print("   FuncID=%d nargs=%d macro=%d prompt=%d" \
-                      % (funcx, nargs, macro, prompt), file=bk.logfile)
-            //////// TODO //////// if funcx == 255: // call add-in function
+            if (blah) {
+                pprint("   FuncID=%d nargs=%d macro=%d prompt=%d" \
+                      % (funcx, nargs, macro, prompt))
+            //////// TODO //////// if funcx == 255) { // call add-in function
             if funcx == 255:
                 func_attrs = ("CALL_ADDIN", 1, 30)
-            else:
-                func_attrs = func_defs.get(funcx, None)
+            } else {
+                func_attrs = func_defs.get(funcx, nullptr)
             if not func_attrs:
-                print("*** formula/tFuncVar unknown FuncID:%d" \
-                      % funcx, file=bk.logfile)
-                spush(unk_opnd)
-            else:
+                pprint("*** formula/tFuncVar unknown FuncID:%d" \
+                      % funcx)
+                stack.push_back(unk_opnd);
+            } else {
                 func_name, minargs, maxargs = func_attrs[:3]
-                if blah:
-                    print("    name: %r, min~max args: %d~%d" \
-                        % (func_name, minargs, maxargs), file=bk.logfile)
+                if (blah) {
+                    pprint("    name) { %s, min~max args) { %d~%d" \
+                        % (func_name, minargs, maxargs))
                 assert minargs <= nargs <= maxargs
-                assert len(stack) >= nargs
-                assert len(stack) >= nargs
+                assert stack.size() >= nargs
+                assert stack.size() >= nargs
                 argtext = listsep.join([arg.text for arg in stack[-nargs:]])
                 otext = "%s(%s)" % (func_name, argtext)
-                res = Operand(oUNK, None, FUNC_RANK, otext)
+                res = Operand(oUNK, nullptr, FUNC_RANK, otext)
                 del stack[-nargs:]
-                spush(res)
-        elif opcode == 0x03: //tName
+                stack.push_back(res);
+        } else if (opcode == 0x03) { //tName
             tgtnamex = unpack("<H", data[pos+1:pos+3])[0] - 1
             // Only change with BIFF version is number of trailing UNUSED bytes!
-            if blah: print("   tgtnamex=%d" % tgtnamex, file=bk.logfile)
+            if (blah) { pprint("   tgtnamex=%d" % tgtnamex)
             tgtobj = bk.name_obj_list[tgtnamex]
             if tgtobj.scope == -1:
                 otext = tgtobj.name
-            else:
+            } else {
                 otext = "%s!%s" % (bk._sheet_names[tgtobj.scope], tgtobj.name)
-            if blah:
-                print("    tName: setting text to", repr(otext), file=bk.logfile)
-            res = Operand(oUNK, None, LEAF_RANK, otext)
-            spush(res)
-        elif opcode == 0x04: // tRef
+            if (blah) {
+                pprint("    tName) { setting text to", repr(otext))
+            res = Operand(oUNK, nullptr, LEAF_RANK, otext)
+            stack.push_back(res);
+        } else if (opcode == 0x04) { // tRef
             res = get_cell_addr(data, pos+1, bv, reldelta, browx, bcolx)
-            if blah: print("  ", res, file=bk.logfile)
+            if (blah) { pprint("  ", res)
             rowx, colx, row_rel, col_rel = res
             is_rel = row_rel or col_rel
             if is_rel:
                 okind = oREL
-            else:
+            } else {
                 okind = oREF
             otext = cellnamerel(rowx, colx, row_rel, col_rel, browx, bcolx, r1c1)
-            res = Operand(okind, None, LEAF_RANK, otext)
-            spush(res)
-        elif opcode == 0x05: // tArea
+            res = Operand(okind, nullptr, LEAF_RANK, otext)
+            stack.push_back(res);
+        } else if (opcode == 0x05) { // tArea
             res1, res2 = get_cell_range_addr(
                             data, pos+1, bv, reldelta, browx, bcolx)
-            if blah: print("  ", res1, res2, file=bk.logfile)
+            if (blah) { pprint("  ", res1, res2)
             rowx1, colx1, row_rel1, col_rel1 = res1
             rowx2, colx2, row_rel2, col_rel2 = res2
             coords = (rowx1, rowx2+1, colx1, colx2+1)
             relflags = (row_rel1, row_rel2, col_rel1, col_rel2)
-            if sum(relflags):  // relative
+            if sum(relflags)) {  // relative
                 okind = oREL
-            else:
+            } else {
                 okind = oREF
-            if blah: print("   ", coords, relflags, file=bk.logfile)
+            if (blah) { pprint("   ", coords, relflags)
             otext = rangename2drel(coords, relflags, browx, bcolx, r1c1)
-            res = Operand(okind, None, LEAF_RANK, otext)
-            spush(res)
-        elif opcode == 0x06: // tMemArea
+            res = Operand(okind, nullptr, LEAF_RANK, otext)
+            stack.push_back(res);
+        } else if (opcode == 0x06) { // tMemArea
             not_in_name_formula(op, oname)
-        elif opcode == 0x09: // tMemFunc
+        } else if (opcode == 0x09) { // tMemFunc
             nb = unpack("<H", data[pos+1:pos+3])[0]
-            if blah: print("  %d bytes of cell ref formula" % nb, file=bk.logfile)
+            if (blah) { pprint("  %d bytes of cell ref formula" % nb)
             // no effect on stack
-        elif opcode == 0x0C: //tRefN
+        } else if (opcode == 0x0C) { //tRefN
             res = get_cell_addr(data, pos+1, bv, reldelta, browx, bcolx)
             // note *ALL* tRefN usage has signed offset for relative addresses
             any_rel = 1
-            if blah: print("   ", res, file=bk.logfile)
+            if (blah) { pprint("   ", res)
             rowx, colx, row_rel, col_rel = res
             is_rel = row_rel or col_rel
             if is_rel:
                 okind = oREL
-            else:
+            } else {
                 okind = oREF
             otext = cellnamerel(rowx, colx, row_rel, col_rel, browx, bcolx, r1c1)
-            res = Operand(okind, None, LEAF_RANK, otext)
-            spush(res)
-        elif opcode == 0x0D: //tAreaN
+            res = Operand(okind, nullptr, LEAF_RANK, otext)
+            stack.push_back(res);
+        } else if (opcode == 0x0D) { //tAreaN
             // res = get_cell_range_addr(data, pos+1, bv, reldelta, browx, bcolx)
             // // note *ALL* tAreaN usage has signed offset for relative addresses
             // any_rel = 1
-            // if blah: print >> bk.logfile, "   ", res
+            // if (blah) { print >> bk.logfile, "   ", res
             res1, res2 = get_cell_range_addr(
                             data, pos+1, bv, reldelta, browx, bcolx)
-            if blah: print("  ", res1, res2, file=bk.logfile)
+            if (blah) { pprint("  ", res1, res2)
             rowx1, colx1, row_rel1, col_rel1 = res1
             rowx2, colx2, row_rel2, col_rel2 = res2
             coords = (rowx1, rowx2+1, colx1, colx2+1)
             relflags = (row_rel1, row_rel2, col_rel1, col_rel2)
-            if sum(relflags):  // relative
+            if sum(relflags)) {  // relative
                 okind = oREL
-            else:
+            } else {
                 okind = oREF
-            if blah: print("   ", coords, relflags, file=bk.logfile)
+            if (blah) { pprint("   ", coords, relflags)
             otext = rangename2drel(coords, relflags, browx, bcolx, r1c1)
-            res = Operand(okind, None, LEAF_RANK, otext)
-            spush(res)
-        elif opcode == 0x1A: // tRef3d
+            res = Operand(okind, nullptr, LEAF_RANK, otext)
+            stack.push_back(res);
+        } else if (opcode == 0x1A) { // tRef3d
             if bv >= 80:
                 res = get_cell_addr(data, pos+3, bv, reldelta, browx, bcolx)
                 refx = unpack("<H", data[pos+1:pos+3])[0]
                 shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
-            else:
+            } else {
                 res = get_cell_addr(data, pos+15, bv, reldelta, browx, bcolx)
                 raw_extshtx, raw_shx1, raw_shx2 = \
                              unpack("<hxxxxxxxxhh", data[pos+1:pos+15])
-                if blah:
-                    print("tRef3d", raw_extshtx, raw_shx1, raw_shx2, file=bk.logfile)
+                if (blah) {
+                    pprint("tRef3d", raw_extshtx, raw_shx1, raw_shx2)
                 shx1, shx2 = get_externsheet_local_range_b57(
                                 bk, raw_extshtx, raw_shx1, raw_shx2, blah)
             rowx, colx, row_rel, col_rel = res
@@ -1942,31 +2267,31 @@ def decompile_formula(bk, fmla, fmlalen,
             any_rel = any_rel or is_rel
             coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1)
             any_err |= shx1 < -1
-            if blah: print("   ", coords, file=bk.logfile)
-            res = Operand(oUNK, None)
+            if (blah) { pprint("   ", coords)
+            res = Operand(oUNK, nullptr)
             if is_rel:
                 relflags = (0, 0, row_rel, row_rel, col_rel, col_rel)
                 ref3d = Ref3D(coords + relflags)
                 res.kind = oREL
                 res.text = rangename3drel(bk, ref3d, browx, bcolx, r1c1)
-            else:
+            } else {
                 ref3d = Ref3D(coords)
                 res.kind = oREF
                 res.text = rangename3d(bk, ref3d)
             res.rank = LEAF_RANK
-            res.value = None
-            spush(res)
-        elif opcode == 0x1B: // tArea3d
+            res.value = nullptr
+            stack.push_back(res);
+        } else if (opcode == 0x1B) { // tArea3d
             if bv >= 80:
                 res1, res2 = get_cell_range_addr(data, pos+3, bv, reldelta)
                 refx = unpack("<H", data[pos+1:pos+3])[0]
                 shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
-            else:
+            } else {
                 res1, res2 = get_cell_range_addr(data, pos+15, bv, reldelta)
                 raw_extshtx, raw_shx1, raw_shx2 = \
                              unpack("<hxxxxxxxxhh", data[pos+1:pos+15])
-                if blah:
-                    print("tArea3d", raw_extshtx, raw_shx1, raw_shx2, file=bk.logfile)
+                if (blah) {
+                    pprint("tArea3d", raw_extshtx, raw_shx1, raw_shx2)
                 shx1, shx2 = get_externsheet_local_range_b57(
                                 bk, raw_extshtx, raw_shx1, raw_shx2, blah)
             any_err |= shx1 < -1
@@ -1975,101 +2300,102 @@ def decompile_formula(bk, fmla, fmlalen,
             is_rel = row_rel1 or col_rel1 or row_rel2 or col_rel2
             any_rel = any_rel or is_rel
             coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1)
-            if blah: print("   ", coords, file=bk.logfile)
-            res = Operand(oUNK, None)
+            if (blah) { pprint("   ", coords)
+            res = Operand(oUNK, nullptr)
             if is_rel:
                 relflags = (0, 0, row_rel1, row_rel2, col_rel1, col_rel2)
                 ref3d = Ref3D(coords + relflags)
                 res.kind = oREL
                 res.text = rangename3drel(bk, ref3d, browx, bcolx, r1c1)
-            else:
+            } else {
                 ref3d = Ref3D(coords)
                 res.kind = oREF
                 res.text = rangename3d(bk, ref3d)
             res.rank = LEAF_RANK
-            spush(res)
-        elif opcode == 0x19: // tNameX
+            stack.push_back(res);
+        } else if (opcode == 0x19) { // tNameX
             dodgy = 0
-            res = Operand(oUNK, None)
+            res = Operand(oUNK, nullptr)
             if bv >= 80:
                 refx, tgtnamex = unpack("<HH", data[pos+1:pos+5])
                 tgtnamex -= 1
                 origrefx = refx
-            else:
+            } else {
                 refx, tgtnamex = unpack("<hxxxxxxxxH", data[pos+1:pos+13])
                 tgtnamex -= 1
                 origrefx = refx
                 if refx > 0:
                     refx -= 1
-                elif refx < 0:
+                } else if (refx < 0:
                     refx = -refx - 1
-                else:
+                } else {
                     dodgy = 1
-            if blah:
-                print("   origrefx=%d refx=%d tgtnamex=%d dodgy=%d" \
-                    % (origrefx, refx, tgtnamex, dodgy), file=bk.logfile)
+            if (blah) {
+                pprint("   origrefx=%d refx=%d tgtnamex=%d dodgy=%d" \
+                    % (origrefx, refx, tgtnamex, dodgy))
             // if tgtnamex == namex:
-            //     if blah: print >> bk.logfile, "!!!! Self-referential !!!!"
+            //     if (blah) { print >> bk.logfile, "!!!! Self-referential !!!!"
             //     dodgy = any_err = 1
             if not dodgy:
                 if bv >= 80:
                     shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
-                elif origrefx > 0:
+                } else if (origrefx > 0:
                     shx1, shx2 = (-4, -4) // external ref
-                else:
+                } else {
                     exty = bk._externsheet_type_b57[refx]
-                    if exty == 4: // non-specific sheet in own doc't
+                    if exty == 4) { // non-specific sheet in own doc't
                         shx1, shx2 = (-1, -1) // internal, any sheet
-                    else:
+                    } else {
                         shx1, shx2 = (-666, -666)
             okind = oUNK
-            ovalue = None
-            if shx1 == -5: // addin func name
+            ovalue = nullptr
+            if shx1 == -5) { // addin func name
                 okind = oSTRG
                 ovalue = bk.addin_func_names[tgtnamex]
                 otext = '"' + ovalue.replace('"', '""') + '"'
-            elif dodgy or shx1 < -1:
+            } else if (dodgy or shx1 < -1:
                 otext = "<<Name //%d in external(?) file //%d>>" \
                         % (tgtnamex, origrefx)
-            else:
+            } else {
                 tgtobj = bk.name_obj_list[tgtnamex]
                 if tgtobj.scope == -1:
                     otext = tgtobj.name
-                else:
+                } else {
                     otext = "%s!%s" \
                             % (bk._sheet_names[tgtobj.scope], tgtobj.name)
-                if blah:
-                    print("    tNameX: setting text to", repr(res.text), file=bk.logfile)
+                if (blah) {
+                    pprint("    tNameX) { setting text to", repr(res.text))
             res = Operand(okind, ovalue, LEAF_RANK, otext)
-            spush(res)
-        elif opcode in error_opcodes:
+            stack.push_back(res);
+        } else if (opcode in error_opcodes:
             any_err = 1
-            spush(error_opnd)
-        else:
-            if blah:
-                print("FORMULA: /// Not handled yet: t" + oname, file=bk.logfile)
+            stack.push_back(error_opnd);
+        } else {
+            if (blah) {
+                pprint("FORMULA) { /// Not handled yet) { t" + oname)
             any_err = 1
         if sz <= 0:
-            raise FormulaError("Fatal: token size is not positive")
+            throw FormulaError("Fatal) { token size is not positive")
         pos += sz
     any_rel = not not any_rel
-    if blah:
-        print("End of formula. level=%d any_rel=%d any_err=%d stack=%r" % \
-            (level, not not any_rel, any_err, stack), file=bk.logfile)
-        if len(stack) >= 2:
-            print("*** Stack has unprocessed args", file=bk.logfile)
-        print(file=bk.logfile)
+    if (blah) {
+        pprint("End of formula. level=%d any_rel=%d any_err=%d stack=%s" % \
+            (level, not not any_rel, any_err, stack))
+        if stack.size() >= 2:
+            pprint("*** Stack has unprocessed args")
+        pprint(file=bk.logfile)
 
-    if len(stack) != 1:
-        result = None
-    else:
+    if stack.size() != 1:
+        result = nullptr
+    } else {
         result = stack[0].text
     return result
-
+*/
+/*
 //////// under deconstruction //////
 def dump_formula(bk, data, fmlalen, bv, reldelta, blah=0, isname=0):
-    if blah:
-        print("dump_formula", fmlalen, bv, len(data), file=bk.logfile)
+    if (blah) {
+        pprint("dump_formula", fmlalen, bv, len(data))
         hex_char_dump(data, 0, fmlalen, fout=bk.logfile)
     assert bv >= 80 //////// this function needs updating ////////
     sztab = szdict[bv]
@@ -2077,158 +2403,159 @@ def dump_formula(bk, data, fmlalen, bv, reldelta, blah=0, isname=0):
     stack = []
     any_rel = 0
     any_err = 0
-    spush = stack.append
+    stack.push_back = stack.append;
     while 0 <= pos < fmlalen:
         op = BYTES_ORD(data[pos])
         opcode = op & 0x1f
         optype = (op & 0x60) >> 5
         if optype:
             opx = opcode + 32
-        else:
+        } else {
             opx = opcode
         oname = onames[opx] // + [" RVA"][optype]
 
         sz = sztab[opx]
-        if blah:
-            print("Pos:%d Op:0x%02x Name:t%s Sz:%d opcode:%02xh optype:%02xh" \
-                % (pos, op, oname, sz, opcode, optype), file=bk.logfile)
+        if (blah) {
+            pprint("Pos:%d Op:0x%02x Name:t%s Sz:%d opcode:%02xh optype:%02xh" \
+                % (pos, op, oname, sz, opcode, optype))
         if not optype:
-            if 0x01 <= opcode <= 0x02: // tExp, tTbl
+            if 0x01 <= opcode <= 0x02) { // tExp, tTbl
                 // reference to a shared formula or table record
                 rowx, colx = unpack("<HH", data[pos+1:pos+5])
-                if blah: print("  ", (rowx, colx), file=bk.logfile)
-            elif opcode == 0x10: // tList
-                if blah: print("tList pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
+                if (blah) { pprint("  ", (rowx, colx))
+            } else if (opcode == 0x10) { // tList
+                if (blah) { pprint("tList pre", stack)
+                assert stack.size() >= 2
                 bop = stack.pop()
                 aop = stack.pop()
-                spush(aop + bop)
-                if blah: print("tlist post", stack, file=bk.logfile)
-            elif opcode == 0x11: // tRange
-                if blah: print("tRange pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
+                stack.push_back(aop + bop);
+                if (blah) { pprint("tlist post", stack)
+            } else if (opcode == 0x11) { // tRange
+                if (blah) { pprint("tRange pre", stack)
+                assert stack.size() >= 2
                 bop = stack.pop()
                 aop = stack.pop()
                 assert len(aop) == 1
                 assert len(bop) == 1
                 result = do_box_funcs(tRangeFuncs, aop[0], bop[0])
-                spush(result)
-                if blah: print("tRange post", stack, file=bk.logfile)
-            elif opcode == 0x0F: // tIsect
-                if blah: print("tIsect pre", stack, file=bk.logfile)
-                assert len(stack) >= 2
+                stack.push_back(result);
+                if (blah) { pprint("tRange post", stack)
+            } else if (opcode == 0x0F) { // tIsect
+                if (blah) { pprint("tIsect pre", stack)
+                assert stack.size() >= 2
                 bop = stack.pop()
                 aop = stack.pop()
                 assert len(aop) == 1
                 assert len(bop) == 1
                 result = do_box_funcs(tIsectFuncs, aop[0], bop[0])
-                spush(result)
-                if blah: print("tIsect post", stack, file=bk.logfile)
-            elif opcode == 0x19: // tAttr
+                stack.push_back(result);
+                if (blah) { pprint("tIsect post", stack)
+            } else if (opcode == 0x19) { // tAttr
                 subop, nc = unpack("<BH", data[pos+1:pos+4])
                 subname = tAttrNames.get(subop, "??Unknown??")
-                if subop == 0x04: // Choose
-                    sz = nc * 2 + 6
-                else:
-                    sz = 4
-                if blah: print("   subop=%02xh subname=t%s sz=%d nc=%02xh" % (subop, subname, sz, nc), file=bk.logfile)
-            elif opcode == 0x17: // tStr
+                if (subop == 0x04) { // Choose
+                    sz = nc * 2 + 6;
+                } else {
+                    sz = 4;
+                }
+                if (blah) { pprint("   subop=%02xh subname=t%s sz=%d nc=%02xh" % (subop, subname, sz, nc))
+            } else if (opcode == 0x17) { // tStr
                 if bv <= 70:
                     nc = BYTES_ORD(data[pos+1])
                     strg = data[pos+2:pos+2+nc] // left in 8-bit encoding
                     sz = nc + 2
-                else:
+                } else {
                     strg, newpos = unpack_unicode_update_pos(data, pos+1, lenlen=1)
                     sz = newpos - pos
-                if blah: print("   sz=%d strg=%r" % (sz, strg), file=bk.logfile)
-            else:
+                if (blah) { pprint("   sz=%d strg=%s" % (sz, strg))
+            } else {
                 if sz <= 0:
-                    print("**** Dud size; exiting ****", file=bk.logfile)
+                    pprint("**** Dud size; exiting ****")
                     return
             pos += sz
             continue
-        if opcode == 0x00: // tArray
+        if opcode == 0x00) { // tArray
             pass
-        elif opcode == 0x01: // tFunc
+        } else if (opcode == 0x01) { // tFunc
             nb = 1 + int(bv >= 40)
             funcx = unpack("<" + " BH"[nb], data[pos+1:pos+1+nb])
-            if blah: print("   FuncID=%d" % funcx, file=bk.logfile)
-        elif opcode == 0x02: //tFuncVar
+            if (blah) { pprint("   FuncID=%d" % funcx)
+        } else if (opcode == 0x02) { //tFuncVar
             nb = 1 + int(bv >= 40)
             nargs, funcx = unpack("<B" + " BH"[nb], data[pos+1:pos+2+nb])
             prompt, nargs = divmod(nargs, 128)
             macro, funcx = divmod(funcx, 32768)
-            if blah: print("   FuncID=%d nargs=%d macro=%d prompt=%d" % (funcx, nargs, macro, prompt), file=bk.logfile)
-        elif opcode == 0x03: //tName
+            if (blah) { pprint("   FuncID=%d nargs=%d macro=%d prompt=%d" % (funcx, nargs, macro, prompt))
+        } else if (opcode == 0x03) { //tName
             namex = unpack("<H", data[pos+1:pos+3])
             // Only change with BIFF version is the number of trailing UNUSED bytes!!!
-            if blah: print("   namex=%d" % namex, file=bk.logfile)
-        elif opcode == 0x04: // tRef
+            if (blah) { pprint("   namex=%d" % namex)
+        } else if (opcode == 0x04) { // tRef
             res = get_cell_addr(data, pos+1, bv, reldelta)
-            if blah: print("  ", res, file=bk.logfile)
-        elif opcode == 0x05: // tArea
+            if (blah) { pprint("  ", res)
+        } else if (opcode == 0x05) { // tArea
             res = get_cell_range_addr(data, pos+1, bv, reldelta)
-            if blah: print("  ", res, file=bk.logfile)
-        elif opcode == 0x09: // tMemFunc
+            if (blah) { pprint("  ", res)
+        } else if (opcode == 0x09) { // tMemFunc
             nb = unpack("<H", data[pos+1:pos+3])[0]
-            if blah: print("  %d bytes of cell ref formula" % nb, file=bk.logfile)
-        elif opcode == 0x0C: //tRefN
+            if (blah) { pprint("  %d bytes of cell ref formula" % nb)
+        } else if (opcode == 0x0C) { //tRefN
             res = get_cell_addr(data, pos+1, bv, reldelta=1)
             // note *ALL* tRefN usage has signed offset for relative addresses
             any_rel = 1
-            if blah: print("   ", res, file=bk.logfile)
-        elif opcode == 0x0D: //tAreaN
+            if (blah) { pprint("   ", res)
+        } else if (opcode == 0x0D) { //tAreaN
             res = get_cell_range_addr(data, pos+1, bv, reldelta=1)
             // note *ALL* tAreaN usage has signed offset for relative addresses
             any_rel = 1
-            if blah: print("   ", res, file=bk.logfile)
-        elif opcode == 0x1A: // tRef3d
+            if (blah) { pprint("   ", res)
+        } else if (opcode == 0x1A) { // tRef3d
             refx = unpack("<H", data[pos+1:pos+3])[0]
             res = get_cell_addr(data, pos+3, bv, reldelta)
-            if blah: print("  ", refx, res, file=bk.logfile)
+            if (blah) { pprint("  ", refx, res)
             rowx, colx, row_rel, col_rel = res
             any_rel = any_rel or row_rel or col_rel
             shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
             any_err |= shx1 < -1
             coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1)
-            if blah: print("   ", coords, file=bk.logfile)
-            if optype == 1: spush([coords])
-        elif opcode == 0x1B: // tArea3d
+            if (blah) { pprint("   ", coords)
+            if optype == 1) { stack.push_back([coords])
+        } else if (opcode ==; 0x1B) { // tArea3d
             refx = unpack("<H", data[pos+1:pos+3])[0]
             res1, res2 = get_cell_range_addr(data, pos+3, bv, reldelta)
-            if blah: print("  ", refx, res1, res2, file=bk.logfile)
+            if (blah) { pprint("  ", refx, res1, res2)
             rowx1, colx1, row_rel1, col_rel1 = res1
             rowx2, colx2, row_rel2, col_rel2 = res2
             any_rel = any_rel or row_rel1 or col_rel1 or row_rel2 or col_rel2
             shx1, shx2 = get_externsheet_local_range(bk, refx, blah)
             any_err |= shx1 < -1
             coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1)
-            if blah: print("   ", coords, file=bk.logfile)
-            if optype == 1: spush([coords])
-        elif opcode == 0x19: // tNameX
+            if (blah) { pprint("   ", coords)
+            if optype == 1) { stack.push_back([coords])
+        } else if (opcode ==; 0x19) { // tNameX
             refx, namex = unpack("<HH", data[pos+1:pos+5])
-            if blah: print("   refx=%d namex=%d" % (refx, namex), file=bk.logfile)
-        elif opcode in error_opcodes:
+            if (blah) { pprint("   refx=%d namex=%d" % (refx, namex))
+        } else if (opcode in error_opcodes:
             any_err = 1
-        else:
-            if blah: print("FORMULA: /// Not handled yet: t" + oname, file=bk.logfile)
+        } else {
+            if (blah) { pprint("FORMULA) { /// Not handled yet) { t" + oname)
             any_err = 1
         if sz <= 0:
-            print("**** Dud size; exiting ****", file=bk.logfile)
+            pprint("**** Dud size; exiting ****")
             return
         pos += sz
-    if blah:
-        print("End of formula. any_rel=%d any_err=%d stack=%r" % \
-            (not not any_rel, any_err, stack), file=bk.logfile)
-        if len(stack) >= 2:
-            print("*** Stack has unprocessed args", file=bk.logfile)
+    if (blah) {
+        pprint("End of formula. any_rel=%d any_err=%d stack=%s" % \
+            (not not any_rel, any_err, stack))
+        if stack.size() >= 2:
+            pprint("*** Stack has unprocessed args")
 */
 
 
 // === Some helper functions for displaying cell references ===
 
 // I'm aware of only one possibility of a sheet-relative component in
-// a reference: a 2D reference located in the "current sheet".
+// a reference) { a 2D reference located in the "current sheet".
 // xlrd stores this internally with bounds of (0, 1, ...) and
 // relative flags of (1, 1, ...). These functions display the
 // sheet component as empty, just like Excel etc.
@@ -2254,9 +2581,9 @@ std::string rownamerel(int rowx, int rowxrel, int browx=-1, int r1c1=0) {
 }
 
 /*
-def colnamerel(colx, colxrel, bcolx=None, r1c1=0):
+def colnamerel(colx, colxrel, bcolx=nullptr, r1c1=0):
     // if no base colx is provided, we have to return r1c1
-    if bcolx is None:
+    if bcolx is nullptr:
         r1c1 = True
     if not colxrel:
         if r1c1:
@@ -2269,23 +2596,23 @@ def colnamerel(colx, colxrel, bcolx=None, r1c1=0):
     return colname((bcolx + colx) % 256)
 
 ////
-// Utility function: (5, 7) => 'H6'
+// Utility function) { (5, 7) => 'H6'
 def cellname(rowx, colx):
     """ (5, 7) => 'H6' """
     return "%s%d" % (colname(colx), rowx+1)
 
 ////
-// Utility function: (5, 7) => '$H$6'
+// Utility function) { (5, 7) => '$H$6'
 def cellnameabs(rowx, colx, r1c1=0):
     """ (5, 7) => '$H$6' or 'R8C6'"""
     if r1c1:
         return "R%dC%d" % (rowx+1, colx+1)
     return "$%s$%d" % (colname(colx), rowx+1)
 
-def cellnamerel(rowx, colx, rowxrel, colxrel, browx=None, bcolx=None, r1c1=0):
+def cellnamerel(rowx, colx, rowxrel, colxrel, browx=nullptr, bcolx=nullptr, r1c1=0):
     if not rowxrel and not colxrel:
         return cellnameabs(rowx, colx, r1c1)
-    if (rowxrel and browx is None) or (colxrel and bcolx is None):
+    if (rowxrel and browx is nullptr) or (colxrel and bcolx is nullptr):
         // must flip the whole cell into R1C1 mode
         r1c1 = True
     c = colnamerel(colx, colxrel, bcolx, r1c1)
@@ -2295,7 +2622,7 @@ def cellnamerel(rowx, colx, rowxrel, colxrel, browx=None, bcolx=None, r1c1=0):
     return c + r
 */
 ////
-// Utility function: 7 => 'H', 27 => 'AB'
+// Utility function) { 7 => 'H', 27 => 'AB'
 inline
 std::string colname(int colx) {
     // """ 7 => 'H', 27 => 'AB' """
@@ -2324,12 +2651,12 @@ def rangename2d(rlo, rhi, clo, chi, r1c1=0):
         return cellnameabs(rlo, clo, r1c1)
     return "%s:%s" % (cellnameabs(rlo, clo, r1c1), cellnameabs(rhi-1, chi-1, r1c1))
 
-def rangename2drel(rlo_rhi_clo_chi, rlorel_rhirel_clorel_chirel, browx=None, bcolx=None, r1c1=0):
+def rangename2drel(rlo_rhi_clo_chi, rlorel_rhirel_clorel_chirel, browx=nullptr, bcolx=nullptr, r1c1=0):
     rlo, rhi, clo, chi = rlo_rhi_clo_chi
     rlorel, rhirel, clorel, chirel = rlorel_rhirel_clorel_chirel
-    if (rlorel or rhirel) and browx is None:
+    if (rlorel or rhirel) and browx is nullptr:
         r1c1 = True
-    if (clorel or chirel) and bcolx is None:
+    if (clorel or chirel) and bcolx is nullptr:
         r1c1 = True
     return "%s:%s" % (
         cellnamerel(rlo,   clo,   rlorel, clorel, browx, bcolx, r1c1),
@@ -2345,23 +2672,25 @@ def rangename3d(book, ref3d):
     return "%s!%s" % (
         sheetrange(book, *coords[:2]),
         rangename2d(*coords[2:6]))
-
+*/
 ////
 // Utility function:
 // <br /> Ref3D(coords=(0, 1, -32, -22, -13, 13), relflags=(0, 0, 1, 1, 1, 1))
 // R1C1 mode => 'Sheet1!R[-32]C[-13]:R[-23]C[12]'
 // A1 mode => depends on base cell (browx, bcolx)
-def rangename3drel(book, ref3d, browx=None, bcolx=None, r1c1=0):
+inline std::string
+rangename3drel(FormulaDelegate* book, ref3d, browx=nullptr, bcolx=nullptr, r1c1=0) {
     coords = ref3d.coords
     relflags = ref3d.relflags
     shdesc = sheetrangerel(book, coords[:2], relflags[:2])
     rngdesc = rangename2drel(coords[2:6], relflags[2:6], browx, bcolx, r1c1)
-    if not shdesc:
-        return rngdesc
-    return "%s!%s" % (shdesc, rngdesc)
-*/
+    if (!shdesc) {
+        return rngdesc;
+    }
+    return format("%s!%s", shdesc, rngdesc);
+}
 
-static std::map<int, std::string>
+static MAP<int, std::string>
 shname_dict_ = {
     {-1, "?internal; any sheet?"},
     {-2, "internal; deleted sheet"},

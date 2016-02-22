@@ -74,11 +74,13 @@ public:
     template<class T>
     any& operator=(const T& value) {
         delete m_obj;
-        if (value == nullptr) {
-            m_obj = nullptr;
-            return *this;
-        }
         m_obj = new _any<T>(value);
+        return *this;
+    }
+
+    any& operator=(std::nullptr_t value) {
+        delete m_obj;
+        if (value == nullptr) { m_obj = nullptr; }
         return *this;
     }
     
@@ -88,7 +90,12 @@ public:
     }
 
     template<class T>
-    bool is() {
+    const T& unsafe_cast() const {
+        return static_cast< _any<T>& >(*m_obj).m_value;
+    }
+
+    template<class T>
+    const bool is() const {
         return typeid(T) == m_obj->type();
     }
 
@@ -99,8 +106,82 @@ public:
         return m_obj->type();
     }
     
-    bool is_null() {
+    const bool is_null() const {
         return m_obj == nullptr;
+    }
+
+    const bool is_str() const {
+        return typeid(std::string) == m_obj->type();
+    }
+
+    const bool is_int() const {
+        auto& type = m_obj->type();
+        return (
+            typeid(int) == type ||
+            typeid(uint32_t) == type ||
+            // typeid(int64_t) == type ||
+            // typeid(uint64_t) == type ||
+            typeid(int16_t) == type ||
+            typeid(uint16_t) == type ||
+            typeid(int8_t) == type ||
+            typeid(uint8_t) == type
+        );
+    }
+
+    const bool is_double() const {
+        auto& type = m_obj->type();
+        return (
+            typeid(double) == type ||
+            typeid(float) == type
+        );
+    }
+
+    const int to_int() const {
+        if (this->is_int()) {
+            return cast<int>();
+        }
+        if (this->is_double()) {
+            return int(cast<int>());
+        }
+        if (this->is<bool>()) {
+            return cast<bool>() ? 1: 0;
+        }
+        if (this->is_str()) {
+            return std::stoi(cast<std::string>());
+        }
+        return 0;
+    }
+
+    const double to_double() const {
+        if (this->is_int()) {
+            return double(cast<int>());
+        }
+        if (this->is_double()) {
+            return cast<double>();
+        }
+        if (this->is<bool>()) {
+            return cast<bool>() ? 1.0: 0.0;
+        }
+        if (this->is_str()) {
+            return std::stod(cast<std::string>());
+        }
+        return 0.0;
+    }
+
+    const std::string to_str() const {
+        if (this->is_str()) {
+            return cast<std::string>();
+        }
+        if (this->is_int()) {
+            return std::to_string(to_int());
+        }
+        if (this->is_double()) {
+            return std::to_string(to_double());
+        }
+        if (this->is<bool>()) {
+            return cast<bool>()? "true": "false";
+        }
+        return "";
     }
 
     ~any () {
