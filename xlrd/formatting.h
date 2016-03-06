@@ -428,36 +428,39 @@ handle_font(FormattingDelegate* book,
             f.name = unpack_string(data, 14, book->encoding, 1);
         }
     } else if (bv >= 30) {
-        f.height, option_flags, f.colour_index = unpack('<HHH', data[0:6])
-        f.bold = option_flags & 1
-        f.italic = (option_flags & 2) >> 1
-        f.underlined = (option_flags & 4) >> 2
-        f.struck_out = (option_flags & 8) >> 3
-        f.outline = (option_flags & 16) >> 4
-        f.shadow = (option_flags & 32) >> 5
-        f.name = unpack_string(data, 6, book->encoding, lenlen=1)
+        f.height         = as_uint16(data, 0);
+        int option_flags = as_uint16(data, 2);
+        f.colour_index   = as_uint16(data, 4);
+        f.bold = option_flags & 1;
+        f.italic = (option_flags & 2) >> 1;
+        f.underlined = (option_flags & 4) >> 2;
+        f.struck_out = (option_flags & 8) >> 3;
+        f.outline = (option_flags & 16) >> 4;
+        f.shadow = (option_flags & 32) >> 5;
+        f.name = unpack_string(data, 6, book->encoding, 1);
         // Now cook up the remaining attributes ...
-        f.weight = [400, 700][f.bold]
-        f.escapement = 0 // None
-        f.underline_type = f.underlined // None or Single
-        f.family = 0 // Unknown / don't care
-        f.character_set = 1 // System default (0 means "ANSI Latin")
+        f.weight = f.bold ? 700: 400;
+        f.escapement = 0; // None
+        f.underline_type = f.underlined; // None or Single
+        f.family = 0; // Unknown / don't care
+        f.character_set = 1; // System default (0 means "ANSI Latin")
     } else { // BIFF2
-        f.height, option_flags = unpack('<HH', data[0:4])
-        f.colour_index = 0x7FFF // "system window text colour"
-        f.bold = option_flags & 1
-        f.italic = (option_flags & 2) >> 1
-        f.underlined = (option_flags & 4) >> 2
-        f.struck_out = (option_flags & 8) >> 3
-        f.outline = 0
-        f.shadow = 0
-        f.name = unpack_string(data, 4, book->encoding, lenlen=1)
+        f.height = as_uint16(data, 0);
+        int option_flags = as_uint16(data, 2);
+        f.colour_index = 0x7FFF; // "system window text colour"
+        f.bold = option_flags & 1;
+        f.italic = (option_flags & 2) >> 1;
+        f.underlined = (option_flags & 4) >> 2;
+        f.struck_out = (option_flags & 8) >> 3;
+        f.outline = 0;
+        f.shadow = 0;
+        f.name = unpack_string(data, 4, book->encoding, 1);
         // Now cook up the remaining attributes ...
-        f.weight = [400, 700][f.bold]
-        f.escapement = 0 // None
-        f.underline_type = f.underlined // None or Single
-        f.family = 0 // Unknown / don't care
-        f.character_set = 1 // System default (0 means "ANSI Latin")
+        f.weight = f.bold? 700: 400;
+        f.escapement = 0; // None
+        f.underline_type = f.underlined; // None or Single
+        f.family = 0; // Unknown / don't care
+        f.character_set = 1; // System default (0 means "ANSI Latin")
     }
     if (blah) {
         // f.dump(

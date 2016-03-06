@@ -26,11 +26,14 @@ namespace compdoc {
 
 const int DEBUG = 0;
 
+using std::vector;
+using u8 = uint8_t;
+
 USING_FUNC(utils, pprint);
 USING_FUNC(utils, slice);
 USING_FUNC(utils, as_uint8);
 USING_FUNC(utils, as_uint16);
-USING_FUNC(utils, as_uint32);
+USING_FUNC(utils, as_int32);
 USING_FUNC(utils::str, format);
 USING_FUNC(utils::str, unicode);
 
@@ -149,6 +152,12 @@ public:
     const std::vector<uint8_t>& mem;
     int sec_size;
     int short_sec_size;
+    int dir_first_sec_sid;
+    int min_size_std_stream;
+    int mem_data_secs;
+    int mem_data_len;
+    vector<u8> seen;
+    MAP<int, int> SAT;
 
     CompDoc(const std::vector<uint8_t>& mem)
     : mem(mem)
@@ -194,14 +203,14 @@ public:
         //    MSATX_first_sec_sid, MSATX_tot_secs,
         //// ) = unpack("<ii4xiiiii", mem[44:76]);
         //) = unpack("<iiiiiiii", mem[44:76]);
-        int SAT_tot_secs = as_int32(mem, 44);
-        this->dir_first_sec_sid = as_int32(mem, 48);
-        int _unused = as_int32(mem, 52);
+        int SAT_tot_secs          = as_int32(mem, 44);
+        this->dir_first_sec_sid   = as_int32(mem, 48);
+        int _unused               = as_int32(mem, 52);
         this->min_size_std_stream = as_int32(mem, 56);
-        int SAT_first_sec_sid = as_int32(mem, 60);
-        int SSAT_tot_secs = as_int32(mem, 64);
-        int MSATX_first_sec_sid = as_int32(mem, 68);
-        int MSATX_tot_secs = as_int32(mem, 72);
+        int SSAT_first_sec_sid    = as_int32(mem, 60);
+        int SSAT_tot_secs         = as_int32(mem, 64);
+        int MSATX_first_sec_sid   = as_int32(mem, 68);
+        int MSATX_tot_secs        = as_int32(mem, 72);
         
         int mem_data_len = mem.size() - 512;
         int mem_data_secs = mem_data_len / sec_size;
@@ -214,15 +223,17 @@ public:
         }
         this->mem_data_secs = mem_data_secs; // use for checking later
         this->mem_data_len = mem_data_len;
-        seen = this->seen = array.array("B", [0]) * mem_data_secs;
+        // seen = this->seen = array.array("B", [0]) * mem_data_secs;
+        this->seen = vector<u8>(mem_data_secs);
+        auto& seen = this->seen;
 
         if (DEBUG) {
             pprint("sec sizes", ssz, sssz, sec_size, this->short_sec_size);
-            pprint("mem data: %d bytes == %d sectors", mem_data_len, mem_data_secs));
+            pprint("mem data: %d bytes == %d sectors", mem_data_len, mem_data_secs);
             pprint("SAT_tot_secs=%d, dir_first_sec_sid=%d, min_size_std_stream=%d",
-                  SAT_tot_secs, this->dir_first_sec_sid, this->min_size_std_stream,));
-            pprint("SSAT_first_sec_sid=%d, SSAT_tot_secs=%d", SSAT_first_sec_sid, SSAT_tot_secs,));
-            pprint("MSATX_first_sec_sid=%d, MSATX_tot_secs=%d", MSATX_first_sec_sid, MSATX_tot_secs,));
+                   SAT_tot_secs, this->dir_first_sec_sid, this->min_size_std_stream);
+            pprint("SSAT_first_sec_sid=%d, SSAT_tot_secs=%d", SSAT_first_sec_sid, SSAT_tot_secs);
+            pprint("MSATX_first_sec_sid=%d, MSATX_tot_secs=%d", MSATX_first_sec_sid, MSATX_tot_secs);
         }
         int nent = sec_size; // 4 // number of SID entries in a sector
         //fmt = "<%di" % nent
@@ -236,14 +247,16 @@ public:
             MSAT.push_back(as_int32(mem, 76 + i*4));
         }
         int SAT_sectors_reqd = (mem_data_secs + nent - 1); // nent
-        int expected_MSATX_sectors = max(0, (SAT_sectors_reqd - 109 + nent - 2)); // (nent - 1));
+        int expected_MSATX_sectors = std::max(0, (SAT_sectors_reqd - 109 + nent - 2)); // (nent - 1));
         int actual_MSATX_sectors = 0;
-        if (MSATX_tot_secs == 0 and MSATX_first_sec_sid in (EOCSID, FREESID, 0)) {
+        if (MSATX_tot_secs == 0 and (MSATX_first_sec_sid == EOCSID ||
+                                     MSATX_first_sec_sid == FREESID ||
+                                     MSATX_first_sec_sid ==  0)) {
             // Strictly, if there is no MSAT extension, then MSATX_first_sec_sid
             // should be set to EOCSID ... FREESID and 0 have been met in the wild.
             //pass // Presuming no extension
         } else {
-            sid = MSATX_first_sec_sid;
+            int sid = MSATX_first_sec_sid;
             while (sid != EOCSID and sid != FREESID and sid != MSATSID) {
                 // Above should be only EOCSID according to MS & OOo docs
                 // but Excel doesn"t complain about FREESID. Zero is a valid
@@ -252,10 +265,10 @@ public:
                     pprint("MSATX: sid=%d (0x%08X)", sid, sid);
                 }
                 if (sid >= mem_data_secs) {
-                    msg = "MSAT extension: accessing sector %d but only %d in file", sid, mem_data_secs);
+                    std::string msg = format("MSAT extension: accessing sector %d but only %d in file", sid, mem_data_secs);
                     if (DEBUG > 1) {
                         pprint(msg);
-                        break
+                        break;
                     }
                     throw CompDocError(msg);
                 } else if (sid < 0) {
@@ -269,7 +282,7 @@ public:
                 if (DEBUG and actual_MSATX_sectors > expected_MSATX_sectors) {
                     pprint("[1]===>>>", mem_data_secs, nent, SAT_sectors_reqd, expected_MSATX_sectors, actual_MSATX_sectors);
                 }
-                offset = 512 + sec_size * sid;
+                int offset = 512 + sec_size * sid;
                 // MSAT.extend(unpack(fmt, mem[offset:offset+sec_size]));
                 for (int i=0; i < nent; ++i) {
                     MSAT.push_back(as_int32(mem, offset+i*4));
@@ -283,15 +296,15 @@ public:
         }
         if (DEBUG) {
             pprint("MSAT: len = %lu", MSAT.size());
-            dump_list(MSAT, 10, logfile);
+            dump_list(MSAT, 10);
         }
         //
         // === build the SAT ===
         //
         this->SAT = {};
-        actual_SAT_sectors = 0;
-        dump_again = 0;
-        for (int msidx = 0, len =MSAT.size(); i < len; ++i) {
+        int actual_SAT_sectors = 0;
+        int dump_again = 0;
+        for (int msidx = 0, len = MSAT.size(); i < len; ++i) {
             int msid = MSAT[msidx];
             if (msid == FREESID or msid == EOCSID) {
                 // Specification: the MSAT array may be padded with trailing FREESID entries.
@@ -334,7 +347,7 @@ public:
         if (DEBUG and dump_again) {
             pprint("MSAT: len =", MSAT.size());
             dump_list(MSAT, 10, logfile);
-            for (int satx=mem_data_secs; i<this->SAT.size(), ++i){
+            for (int satx=mem_data_secs; i<this->SAT.size(), ++satx){
                 this->SAT[satx] = EVILSID;
             }
             pprint("SAT: len = %lu", this->SAT.size());
@@ -456,6 +469,7 @@ public:
                         "OLE2 stream %r: sector allocation table invalid entry (%d)",
                         name, s);
                 }
+            }
             assert s == EOCSID
             if (todo != 0) {
                 pprint(this->logfile,
@@ -527,7 +541,7 @@ public:
         if (d is None) {
             return (None, 0, 0);
         if (d.tot_size > this->mem_data_len) {
-            throw CompDocError("%r stream length (%d bytes) > file data size (%d bytes)"
+            throw CompDocError("%s stream length (%d bytes) > file data size (%d bytes)"
                , qname, d.tot_size, this->mem_data_len));
         if (d.tot_size >= this->min_size_std_stream) {
             result = this->_locate_stream(

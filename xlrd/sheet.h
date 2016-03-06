@@ -510,7 +510,7 @@ public:
     ////
     // {@link //Cell} object in the given row and column.
     Cell cell(int rowx, int colx) {
-    	  int xfx = -1;
+        int xfx = -1;
         if (this->formatting_info) {
             xfx = this->cell_xf_index(rowx, colx);
         }
@@ -635,8 +635,8 @@ public:
     // the given column by Excel, in units of 1/256th of the width of a
     // standard character (the digit zero in the first font).
 
-    inline
-    void computed_column_width(int colx) {
+    EXPORT int
+    computed_column_width(int colx) {
         this->req_fmt_info();
         if (this->biff_version >= 80) {
             auto colinfo_ptr = findptr(this->colinfo_map, colx);
@@ -660,7 +660,7 @@ public:
         } else if (self.biff_version == 30) {
             auto colinfo_ptr = findptr(this->colinfo_map, colx);
             if (colinfo_ptr != nullptr) {
-                return colinfo->width;
+                return colinfo_ptr->width;
             }
         }
         // All roads lead to Rome and the DEFCOLWIDTH ...
