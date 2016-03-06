@@ -562,11 +562,11 @@ public:
 
     void handle_builtinfmtcount(std::vector<uint8_t>& data);
 
-    inline
+    virtual
     std::string derive_encoding() {
         if (!this->encoding_override.empty()) {
             this->encoding = this->encoding_override;
-        }else if (this->codepage == 0) {
+        } else if (this->codepage == 0) {
             if (this->biff_version < 80) {
                 pprint(
                     "*** No CODEPAGE record, no encoding_override: will use 'ascii'\n");
@@ -635,36 +635,47 @@ public:
         this->countries[1] = country1;
     }
 
-    /*
-    def handle_datemode(self, data):
-        datemode = unpack('<H', data[0:2])[0]
-        if DEBUG or self.verbosity:
-            fprintf(self.logfile, "DATEMODE: datemode %r\n", datemode)
-        assert datemode in (0, 1)
-        self.datemode = datemode
+    inline void
+    handle_datemode(const vector<u8>& data) {
+        int datemode = as_uint16(data, 0);
+        if (DEBUG or this->verbosity) {
+            pprint("DATEMODE: datemode %r\n", datemode);
+        }
+        assert(datemode==0 or datemode==1);
+        this->datemode = datemode;
+    }
 
-    def handle_externname(self, data):
-        blah = DEBUG or self.verbosity >= 2
-        if self.biff_version >= 80:
-            option_flags, other_info =unpack("<HI", data[:6])
-            pos = 6
-            name, pos = unpack_unicode_update_pos(data, pos, lenlen=1)
-            extra = data[pos:]
-            if self._supbook_types[-1] == SUPBOOK_ADDIN:
-                self.addin_func_names.append(name)
-            if blah:
-                fprintf(self.logfile,
+    inline void
+    handle_externname(const vector<u8>& data) {
+        int blah = DEBUG or self.verbosity >= 2;
+        if (this->biff_version >= 80) {
+            int option_flags = as_uint16(data, 0);
+            int other_info = as_int32(data, 2);
+            int pos = 6;
+            std:string name;
+            std::tie(name, pos) = unpack_unicode_update_pos(
+                                      data, pos, 1);
+            auto extra = slice(data, pos, 0);
+            if (this->_supbook_types.back() == SUPBOOK_ADDIN) {
+                this->addin_func_names.push_back(name);
+            }
+            if (blah) {
+                pprint(
                     "EXTERNNAME: sbktype=%d oflags=0x%04x oinfo=0x%08x name=%r extra=%r\n",
-                    self._supbook_types[-1], option_flags, other_info, name, extra)
-
-    def handle_externsheet(self, data):
-        self.derive_encoding() // in case CODEPAGE record missing/out of order/wrong
-        self._extnsht_count += 1 // for use as a 1-based index
-        blah1 = DEBUG or self.verbosity >= 1
-        blah2 = DEBUG or self.verbosity >= 2
-        if self.biff_version >= 80:
-            num_refs = unpack("<H", data[0:2])[0]
-            bytes_reqd = num_refs * 6 + 2
+                    this->_supbook_types.back(), option_flags, other_info, name, extra);
+            }
+        }
+    }
+    
+    inline void
+    handle_externsheet(const vector<u8>& data) {
+        this->derive_encoding() // in case CODEPAGE record missing/out of order/wrong
+        this->_extnsht_count += 1; // for use as a 1-based index
+        int blah1 = DEBUG or self.verbosity >= 1;
+        int blah2 = DEBUG or self.verbosity >= 2;
+        if (this->biff_version >= 80) {
+            int num_refs = as_uint16(data, 0);
+            int bytes_reqd = num_refs * 6 + 2;
             while len(data) < bytes_reqd:
                 if blah1:
                     fprintf(

@@ -420,8 +420,8 @@ public:
         this->_cell_values = {};
         this->_cell_types = {};
         this->_cell_xf_indexes = {};
-        this->defcolwidth = 0;
-        this->standardwidth = 0;
+        this->defcolwidth = -1;
+        this->standardwidth = -1;
         this->default_row_height = 0;
         this->default_row_height_mismatch = 0;
         this->default_row_hidden = 0;
@@ -509,7 +509,17 @@ public:
 
     ////
     // {@link //Cell} object in the given row and column.
-    Cell cell(int rowx, int colx);
+    Cell cell(int rowx, int colx) {
+    	  int xfx = -1;
+        if (this->formatting_info) {
+            xfx = this->cell_xf_index(rowx, colx);
+        }
+        return Cell(
+            this->_cell_types[rowx][colx],
+            this->_cell_values[rowx][colx],
+            xfx,
+        );
+    }
 
     ////
     // Value of the cell in the given row and column.
@@ -627,29 +637,36 @@ public:
 
     inline
     void computed_column_width(int colx) {
-        self.req_fmt_info();
-        if (self.biff_version >= 80) {
-            colinfo = self.colinfo_map.get(colx, None)
-            if colinfo is not None:
-                return colinfo.width
-            if self.standardwidth is not None:
-                return self.standardwidth;
+        this->req_fmt_info();
+        if (this->biff_version >= 80) {
+            auto colinfo_ptr = findptr(this->colinfo_map, colx);
+            if (colinfo_ptr != nullptr) {
+                return colinfo_ptr->width;
+            }
+            if (self.standardwidth != -1) {
+                return this->standardwidth;
+            }
         } else if (self.biff_version >= 40) {
-            if self.gcw[colx]:
-                if self.standardwidth is not None:
-                    return self.standardwidth
-            else:
-                colinfo = self.colinfo_map.get(colx, None)
-                if colinfo is not None:
-                    return colinfo.width
+            if (this->gcw[colx]) {
+                if (this->standardwidth != -1) {
+                    return this->standardwidth;
+                }
+            } else {
+                auto colinfo_ptr = findptr(self->colinfo_map,colx);
+                if (colinfo_ptr != nullptr) {
+                    return colinfo_ptr->width;
+                }
+            }
         } else if (self.biff_version == 30) {
-            colinfo = self.colinfo_map.get(colx, None);
-            if colinfo is not None:
-                return colinfo.width;
+            auto colinfo_ptr = findptr(this->colinfo_map, colx);
+            if (colinfo_ptr != nullptr) {
+                return colinfo->width;
+            }
         }
         // All roads lead to Rome and the DEFCOLWIDTH ...
-        if (self.defcolwidth is not None)
-            return self.defcolwidth * 256;
+        if (this->defcolwidth != -1) {
+            return this->defcolwidth * 256;
+        }
         return 8 * 256; // 8 is what Excel puts in a DEFCOLWIDTH record
     }
 

@@ -10,6 +10,8 @@
 #include "./utils/str.h"
 
 #define MAP std::unordered_map
+#define TIE std::tie
+#define EXPORT inline
 
 #define USING_FUNC(ns, func) template<class...A> inline auto func(A...a) -> decltype(ns::func(a...)) { return ns::func(a...); }
 #define ASSERT(cond) if(!(cond)){ throw std::logic_error("assertion failed."); }
@@ -86,7 +88,7 @@ auto getelse(const MAP<K, V>& dict, K key, V default_value)
 }
 
 template<class T>
-auto pop(const std::vector<T>& vec)
+auto pop(std::vector<T>& vec)
 -> T
 {
     auto back = std::move(vec.back());

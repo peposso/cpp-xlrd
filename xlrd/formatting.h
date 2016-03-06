@@ -27,7 +27,12 @@
 namespace xlrd {
 namespace formatting {
 
+using std::vector;
+using u8 = uint8_t;
+
 USING_FUNC(utils, pprint);
+USING_FUNC(utils, as_uint8);
+USING_FUNC(utils, as_uint16);
 
 const auto& FUN = biffh::FUN;
 const auto& FDT = biffh::FDT;
@@ -36,6 +41,8 @@ const auto& FGE = biffh::FGE;
 const auto& FTX = biffh::FTX;
 const auto& XL_CELL_NUMBER = biffh::XL_CELL_NUMBER;
 const auto& XL_CELL_DATE = biffh::XL_CELL_DATE;
+USING_FUNC(biffh, unpack_unicode);
+USING_FUNC(biffh, unpack_string);
 
 const auto& DEBUG = biffh::DEBUG;
 
@@ -183,92 +190,6 @@ public:
     }
 };
 
-class FormattingDelegate
-{
-public:
-    int _xf_epilogue_done;
-    std::vector<Format> xf_list;
-    int verbosity;
-    MAP<int, Format> format_map;
-    MAP<int, int> _xf_index_to_xl_type_map;
-    int formatting_info;
-    int biff_version;
-    MAP<int, color> colour_map;
-    MAP<int, int> colour_indexes_used;
-    
-    virtual int get_biff_version() {
-    	  throw std::logic_error("NotImplemented");
-    	  return 0;
-    }
-};
-
-inline void
-initialise_colour_map(FormattingDelegate* book) {
-    book->colour_map = {};
-    book->colour_indexes_used = {};
-    if (!book->formatting_info) {
-        return;
-    }
-    // Add the 8 invariant colours
-    for (int i=0; i < 8; ++i) {
-        book->colour_map[i] = excel_default_palette_b8.at(i);
-    }
-    // Add the default palette depending on the version
-    auto& dpal = default_palette.at(book->biff_version);
-    int ndpal = dpal.size();
-    for (int i=0; i < ndpal; ++i) {
-        book->colour_map[i+8] = dpal.at(i);
-    }
-    // Add the specials -- None means the RGB value is not known
-    // System window text colour for border lines
-    book->colour_map[ndpal+8] = nullcolor;
-    // System window background colour for pattern background
-    book->colour_map[ndpal+8+1] = nullcolor; //
-
-    // for ci in (
-    //     0x51, // System ToolTip text colour (used in note objects)
-    //     0x7FFF, // 32767, system window text colour for fonts
-    //     ):
-    //     book->colour_map[ci] = None
-    book->colour_map[0x51] = nullcolor; // System ToolTip text colour (used in note objects)
-    book->colour_map[0x7FFF] = nullcolor; // 32767, system window text colour for fonts
-}
-
-/*
-def nearest_colour_index(colour_map, rgb, debug=0):
-    // General purpose function. Uses Euclidean distance.
-    // So far used only for pre-BIFF8 WINDOW2 record.
-    // Doesn't have to be fast.
-    // Doesn't have to be fancy.
-    best_metric = 3 * 256 * 256
-    best_colourx = 0
-    for colourx, cand_rgb in colour_map.items():
-        if cand_rgb is None:
-            continue
-        metric = 0
-        for v1, v2 in zip(rgb, cand_rgb):
-            metric += (v1 - v2) * (v1 - v2)
-        if metric < best_metric:
-            best_metric = metric
-            best_colourx = colourx
-            if metric == 0:
-                break
-    if 0 and debug:
-        print("nearest_colour_index for %s is %s -> %s; best_metric is %d" \
-            % (rgb, best_colourx, colour_map[best_colourx], best_metric))
-    return best_colourx
-
-////
-// This mixin class exists solely so that Format, Font, and XF.... objects
-// can be compared by value of their attributes.
-class EqNeAttrs(object):
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
-
-    def __ne__(self, other):
-        return self.__dict__ != other.__dict__
-*/
 ////
 // An Excel "font" contains the details of not only what is normally
 // considered a font, but also several other display attributes.
@@ -352,48 +273,161 @@ public:
     // No methods ...
 };
 
+class FormattingDelegate
+{
+public:
+    int _xf_epilogue_done;
+    std::vector<Format> xf_list;
+    int verbosity;
+    MAP<int, Format> format_map;
+    MAP<int, int> _xf_index_to_xl_type_map;
+    int formatting_info;
+    int biff_version;
+    MAP<int, color> colour_map;
+    MAP<int, int> colour_indexes_used;
+    vector<Font> font_list;
+    std::string encoding;
+    
+    virtual int get_biff_version() {
+        throw std::logic_error("NotImplemented");
+        return 0;
+    }
+
+    virtual std::string derive_encoding() {
+        throw std::logic_error("NotImplemented");
+        return "";
+    }
+};
+
 inline void
-handle_efont(FormattingDelegate* book, data) { // BIFF2 only
-    if (not book.formatting_info)
+initialise_colour_map(FormattingDelegate* book) {
+    book->colour_map = {};
+    book->colour_indexes_used = {};
+    if (!book->formatting_info) {
         return;
-    book->font_list[-1].colour_index = unpack('<H', data)[0];
+    }
+    // Add the 8 invariant colours
+    for (int i=0; i < 8; ++i) {
+        book->colour_map[i] = excel_default_palette_b8.at(i);
+    }
+    // Add the default palette depending on the version
+    auto& dpal = default_palette.at(book->biff_version);
+    int ndpal = dpal.size();
+    for (int i=0; i < ndpal; ++i) {
+        book->colour_map[i+8] = dpal.at(i);
+    }
+    // Add the specials -- None means the RGB value is not known
+    // System window text colour for border lines
+    book->colour_map[ndpal+8] = nullcolor;
+    // System window background colour for pattern background
+    book->colour_map[ndpal+8+1] = nullcolor; //
+
+    // for ci in (
+    //     0x51, // System ToolTip text colour (used in note objects)
+    //     0x7FFF, // 32767, system window text colour for fonts
+    //     ):
+    //     book->colour_map[ci] = None
+    book->colour_map[0x51] = nullcolor; // System ToolTip text colour (used in note objects)
+    book->colour_map[0x7FFF] = nullcolor; // 32767, system window text colour for fonts
+}
+
+inline int
+nearest_colour_index(const MAP<int, color>& colour_map, color rgb)
+{
+    // General purpose function. Uses Euclidean distance.
+    // So far used only for pre-BIFF8 WINDOW2 record.
+    // Doesn't have to be fast.
+    // Doesn't have to be fancy.
+    int best_metric = 3 * 256 * 256;
+    int best_colourx = 0;
+    for (auto it: colour_map) {
+        int colourx = it.first;
+        color cand_rgb = it.second;
+        //if cand_rgb is None:
+        //    continue
+        int metric = 0;
+        for (int i=0; i < 3; ++i) {
+            int v1 = rgb[i], v2 = cand_rgb[i];
+            metric += (v1 - v2) * (v1 - v2);
+        }
+        if (metric < best_metric) {
+            best_metric = metric;
+            best_colourx = colourx;
+            if (metric == 0)
+                break;
+        }
+    }
+    return best_colourx;
+}
+
+/*
+////
+// This mixin class exists solely so that Format, Font, and XF.... objects
+// can be compared by value of their attributes.
+class EqNeAttrs(object):
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+    def __ne__(self, other):
+        return self.__dict__ != other.__dict__
+*/
+
+inline void
+handle_efont(FormattingDelegate* book, const vector<u8>& data) { // BIFF2 only
+    if (not book->formatting_info)
+        return;
+    book->font_list[-1].colour_index = utils::as_uint16(data, 0);
 }
 
 inline void
-handle_font(book, data) {
-    if not book.formatting_info:
-        return
-    if not book.encoding:
-        book.derive_encoding()
-    blah = DEBUG or book.verbosity >= 2
+handle_font(FormattingDelegate* book,
+            const std::vector<uint8_t>& data)
+{
+    if (not book->formatting_info)
+        return;
+    if (book->encoding.empty())
+        book->derive_encoding();
+    int blah = DEBUG or book->verbosity >= 2;
     int bv = book->get_biff_version();
-    k = len(book.font_list)
-    if k == 4:
-        f = Font()
-        f.name = UNICODE_LITERAL('Dummy Font')
-        f.font_index = k
-        book.font_list.append(f)
-        k += 1
-    f = Font()
-    f.font_index = k
-    book.font_list.append(f)
-    if bv >= 50:
-        (
-            f.height, option_flags, f.colour_index, f.weight,
-            f.escapement, f.underline_type, f.family,
-            f.character_set,
-        ) = unpack('<HHHHHBBB', data[0:13])
-        f.bold = option_flags & 1
-        f.italic = (option_flags & 2) >> 1
-        f.underlined = (option_flags & 4) >> 2
-        f.struck_out = (option_flags & 8) >> 3
-        f.outline = (option_flags & 16) >> 4
-        f.shadow = (option_flags & 32) >> 5
-        if bv >= 80:
-            f.name = unpack_unicode(data, 14, lenlen=1)
-        else:
-            f.name = unpack_string(data, 14, book.encoding, lenlen=1)
-    elif bv >= 30:
+    int k = book->font_list.size();
+    Font f;
+    if (k == 4) {
+        // f = Font();
+        f.name = "Dummy Font";
+        f.font_index = k;
+        book->font_list.push_back(f);
+        k += 1;
+    }
+    f = Font();
+    f.font_index = k;
+    book->font_list.push_back(f);
+    if (bv >= 50) {
+        // (
+        //     f.height, option_flags, f.colour_index, f.weight,
+        //     f.escapement, f.underline_type, f.family,
+        //     f.character_set,
+        // ) = unpack('<HHHHHBBB', data[0:13])
+        f.height         = as_uint16(data, 0);
+        int option_flags = as_uint16(data, 2);
+        f.colour_index   = as_uint16(data, 4);
+        f.weight         = as_uint16(data, 6);
+        f.escapement     = as_uint16(data, 8);
+        f.underline_type = as_uint8(data, 10);
+        f.family         = as_uint8(data, 11);
+        f.character_set  = as_uint8(data, 12);
+        f.bold       = option_flags & 1;
+        f.italic     = (option_flags & 2) >> 1;
+        f.underlined = (option_flags & 4) >> 2;
+        f.struck_out = (option_flags & 8) >> 3;
+        f.outline    = (option_flags & 16) >> 4;
+        f.shadow     = (option_flags & 32) >> 5;
+        if (bv >= 80) {
+            f.name = unpack_unicode(data, 14, 1);
+        } else {
+            f.name = unpack_string(data, 14, book->encoding, 1);
+        }
+    } else if (bv >= 30) {
         f.height, option_flags, f.colour_index = unpack('<HHH', data[0:6])
         f.bold = option_flags & 1
         f.italic = (option_flags & 2) >> 1
@@ -401,14 +435,14 @@ handle_font(book, data) {
         f.struck_out = (option_flags & 8) >> 3
         f.outline = (option_flags & 16) >> 4
         f.shadow = (option_flags & 32) >> 5
-        f.name = unpack_string(data, 6, book.encoding, lenlen=1)
+        f.name = unpack_string(data, 6, book->encoding, lenlen=1)
         // Now cook up the remaining attributes ...
         f.weight = [400, 700][f.bold]
         f.escapement = 0 // None
         f.underline_type = f.underlined // None or Single
         f.family = 0 // Unknown / don't care
         f.character_set = 1 // System default (0 means "ANSI Latin")
-    else: // BIFF2
+    } else { // BIFF2
         f.height, option_flags = unpack('<HH', data[0:4])
         f.colour_index = 0x7FFF // "system window text colour"
         f.bold = option_flags & 1
@@ -417,18 +451,19 @@ handle_font(book, data) {
         f.struck_out = (option_flags & 8) >> 3
         f.outline = 0
         f.shadow = 0
-        f.name = unpack_string(data, 4, book.encoding, lenlen=1)
+        f.name = unpack_string(data, 4, book->encoding, lenlen=1)
         // Now cook up the remaining attributes ...
         f.weight = [400, 700][f.bold]
         f.escapement = 0 // None
         f.underline_type = f.underlined // None or Single
         f.family = 0 // Unknown / don't care
         f.character_set = 1 // System default (0 means "ANSI Latin")
+    }
     if (blah) {
-        f.dump(
-            header="--- handle_font: font[%d] ---" % f.font_index,
-            footer="-------------------",
-            );
+        // f.dump(
+        //     header="--- handle_font: font[%d] ---" % f.font_index,
+        //     footer="-------------------",
+        //     );
     }
 }
 
@@ -1073,9 +1108,9 @@ void xf_epilogue(FormattingDelegate* self) {
         Format fmt;
         int cellty;
         try {
-            fmt = utils::find_orerror(self->format_map, xf.format_key);
-            cellty = int(utils::find_orerror(_cellty_from_fmtty, fmt.type));
-        } catch(utils::KeyError exc) {
+            fmt = self->format_map.at(xf.format_key);
+            cellty = int(_cellty_from_fmtty.at(fmt.type));
+        } catch(std::range_error exc) {
             cellty = biffh::XL_CELL_TEXT;
         }
         self->_xf_index_to_xl_type_map[xf.xf_index] = cellty;

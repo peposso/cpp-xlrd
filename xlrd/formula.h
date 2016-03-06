@@ -15,6 +15,7 @@
 #include <set>
 #include <cmath>
 #include <array>
+#include <vector>
 
 #include "./biffh.h"
 //  unpack_unicode_update_pos, unpack_string_update_pos,
@@ -24,6 +25,10 @@
 
 namespace xlrd {
 namespace formula {
+
+using std::array;
+using std::vector;
+using u8 = uint8_t;
 
 namespace strutil = utils::str;
 USING_FUNC(strutil, format);
@@ -461,8 +466,7 @@ do_box_funcs(kBoxFuncs box_funcs,
 }
 
 
-inline
-std::tuple<int, int, int, int>
+inline std::array<int, 4>
 adjust_cell_addr_biff8(int rowval, int colval, int reldelta, int browx, int bcolx) {
     int row_rel = (colval >> 15) & 1;
     int col_rel = (colval >> 14) & 1;
@@ -484,10 +488,10 @@ adjust_cell_addr_biff8(int rowval, int colval, int reldelta, int browx, int bcol
             colx -= bcolx;
         }
     }
-    return std::make_tuple(rowx, colx, row_rel, col_rel);
+    return {{rowx, colx, row_rel, col_rel}};
 }
 
-inline std::tuple<int, int, int, int>
+inline std::array<int, 4>
 adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int bcolx) {
     int row_rel = (rowval >> 15) & 1;
     int col_rel = (rowval >> 14) & 1;
@@ -503,18 +507,22 @@ adjust_cell_addr_biff_le7(int rowval, int colval, int reldelta, int browx, int b
     }
     else {
         if (row_rel) {
+            if (browx == -1)
+                throw std::logic_error("browx");
             rowx -= browx;
         }
         if (col_rel) {
+            if (bcolx == -1)
+                throw std::logic_error("bcolx");
             colx -= bcolx;
         }
     }
-    return std::make_tuple(rowx, colx, row_rel, col_rel);
+    return {{rowx, colx, row_rel, col_rel}};
 }
 
-inline std::tuple<int, int, int, int>
+inline std::array<int, 4>
 get_cell_addr(const std::vector<uint8_t>& data, int pos, int bv,
-              int reldelta, int browx, int bcolx) {
+              int reldelta, int browx=-1, int bcolx=-1) {
     if (bv >= 80) {
         int rowval = utils::as_uint16(data, pos);
         int colval = utils::as_uint16(data, pos+2);
@@ -532,7 +540,7 @@ get_cell_addr(const std::vector<uint8_t>& data, int pos, int bv,
 }
 
 inline
-std::tuple<std::tuple<int, int, int, int>, std::tuple<int, int, int, int>>
+std::tuple<std::array<int, 4>, std::array<int, 4>>
 get_cell_range_addr(const std::vector<uint8_t>& data, int pos, int bv,
                     int reldelta, int browx=-1, int bcolx=-1) {
     int row1val, row2val, col1val, col2val;
@@ -563,121 +571,6 @@ get_cell_range_addr(const std::vector<uint8_t>& data, int pos, int bv,
         return std::make_tuple(res1, res2);
     }
 }
-
-class FormulaBookDelegate {
-public:
-    std::vector<std::tuple<int, int, int>> _externsheet_info;
-    std::vector<int> _all_sheets_map;
-    virtual std::vector<std::string> sheet_names();
-    int _supbook_addins_inx;
-    int _supbook_locals_inx;
-    int biff_version;
-    std::string encoding;
-};
-
-inline
-std::tuple<int, int>
-get_externsheet_local_range(const FormulaBookDelegate& bk, int refx, int blah=0) {
-    if (refx >= (int)bk._externsheet_info.size()) {
-        pprint(
-            "!!! get_externsheet_local_range) { refx=%d, not in range(%d)",
-            refx, bk._externsheet_info.size());
-        return std::make_tuple(-101, -101);
-    }
-    auto info = bk._externsheet_info[refx];
-    int ref_recordx = std::get<0>(info);
-    int ref_first_sheetx = std::get<1>(info);
-    int ref_last_sheetx = std::get<2>(info);
-    if (ref_recordx == bk._supbook_addins_inx) {
-        if (blah) {
-            pprint(
-                "/// get_externsheet_local_range(refx=%d) -> addins %s",
-                refx, strutil::repr(info));
-        }
-        //assert ref_first_sheetx == 0xFFFE == ref_last_sheetx
-        return std::make_tuple(-5, -5);
-    }
-    if (ref_recordx != bk._supbook_locals_inx) {
-        if (blah) {
-            pprint(
-                "/// get_externsheet_local_range(refx=%d) -> external %s"
-                , refx, strutil::repr(info));
-        }
-        return std::make_tuple(-4, -4); // external reference
-    }
-    if (ref_first_sheetx == 0xFFFE && 0xFFFE == ref_last_sheetx) {
-        if (blah) {
-            pprint(
-                "/// get_externsheet_local_range(refx=%d) -> unspecified sheet %s"
-                , refx, strutil::repr(info));
-        }
-        return std::make_tuple(-1, -1); // internal reference, any sheet
-    }
-    if (ref_first_sheetx == 0xFFFF && 0xFFFF == ref_last_sheetx) {
-        if (blah) {
-            pprint(
-                "/// get_externsheet_local_range(refx=%d) -> deleted sheet(s)",
-                refx);
-        }
-        return std::make_tuple(-2, -2); // internal reference, deleted sheet(s)
-    }
-    int nsheets = bk._all_sheets_map.size();
-    if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx < nsheets)) {
-        if (blah) {
-            pprint("/// get_externsheet_local_range(refx=%d) -> %s", refx, strutil::repr(info));
-            pprint("--- first/last sheet not in range(%d)", nsheets);
-        }
-        return std::make_tuple(-102, -102); // stuffed up somewhere :-(
-    }
-    int xlrd_sheetx1 = bk._all_sheets_map[ref_first_sheetx];
-    int xlrd_sheetx2 = bk._all_sheets_map[ref_last_sheetx];
-    if (!(0 <= xlrd_sheetx1 && xlrd_sheetx1 <= xlrd_sheetx2)) {
-        return std::make_tuple(-3, -3); // internal reference, but to a macro sheet
-    }
-    return std::make_tuple(xlrd_sheetx1, xlrd_sheetx2);
-}
-
-inline
-std::tuple<int, int>
-get_externsheet_local_range_b57(
-    FormulaBookDelegate bk, int raw_extshtx,
-    int ref_first_sheetx, int ref_last_sheetx, int blah=0)
-{
-    if (raw_extshtx > 0) {
-        if (blah) {
-            pprint("/// get_externsheet_local_range_b57(raw_extshtx=%d) -> external", raw_extshtx);
-        }
-        return std::make_tuple(-4, -4); // external reference
-    }
-    if (ref_first_sheetx == -1 && ref_last_sheetx == -1) {
-        return std::make_tuple(-2, -2); // internal reference, deleted sheet(s)
-    }
-    int nsheets = bk._all_sheets_map.size();
-    if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx  < nsheets)) {
-        if (blah) {
-            pprint(
-                "/// get_externsheet_local_range_b57(%d, %d, %d) -> ???"
-                , raw_extshtx, ref_first_sheetx, ref_last_sheetx
-            );
-            pprint("--- first/last sheet not in range(%d)", nsheets);
-        }
-        return std::make_tuple(-103, -103); // stuffed up somewhere :-(
-    }
-    int xlrd_sheetx1 = bk._all_sheets_map[ref_first_sheetx];
-    int xlrd_sheetx2 = bk._all_sheets_map[ref_last_sheetx];
-    if (!(0 <= xlrd_sheetx1 && xlrd_sheetx1 <= xlrd_sheetx2)) {
-        return std::make_tuple(-3, -3); // internal reference, but to a macro sheet
-    }
-    return std::make_tuple(xlrd_sheetx1, xlrd_sheetx2);
-}
-
-class FormulaError: public std::runtime_error
-{
-public:
-    FormulaError(const char* msg) : std::runtime_error(msg) {};
-    FormulaError(std::string msg) : std::runtime_error(msg.c_str()) {};
-};
-
 
 ////
 // Used in evaluating formulas.
@@ -781,6 +674,143 @@ public:
     };
 };
 
+class FormulaNameDelegate {
+public:
+    std::string name;
+    std::vector<uint8_t> raw_formula;  // fixme:
+    int basic_formula_len;
+    int evaluated;
+    int macro;
+    int binary;
+    int any_err;
+    int any_rel;
+    int scope;
+    int any_external;
+    std::vector<Operand> stack;
+    Operand result;
+};
+
+class FormulaBookDelegate {
+public:
+    std::vector<std::tuple<int, int, int>> _externsheet_info;
+    std::vector<int> _all_sheets_map;
+    MAP<int, std::string> _sheet_names;
+    virtual std::vector<std::string> sheet_names();
+    int _supbook_addins_inx;
+    int _supbook_locals_inx;
+    int biff_version;
+    std::string encoding;
+    vector<int> _externsheet_type_b57;
+
+    virtual FormulaNameDelegate* get_name_obj(int index) {
+        throw std::logic_error("NotImplemented");
+    }
+};
+
+inline
+std::tuple<int, int>
+get_externsheet_local_range(FormulaBookDelegate* bk, int refx, int blah=0) {
+    if (refx >= (int)bk->_externsheet_info.size()) {
+        pprint(
+            "!!! get_externsheet_local_range) { refx=%d, not in range(%d)",
+            refx, bk->_externsheet_info.size());
+        return std::make_tuple(-101, -101);
+    }
+    auto info = bk->_externsheet_info[refx];
+    int ref_recordx = std::get<0>(info);
+    int ref_first_sheetx = std::get<1>(info);
+    int ref_last_sheetx = std::get<2>(info);
+    if (ref_recordx == bk->_supbook_addins_inx) {
+        if (blah) {
+            pprint(
+                "/// get_externsheet_local_range(refx=%d) -> addins %s",
+                refx, strutil::repr(info));
+        }
+        //assert ref_first_sheetx == 0xFFFE == ref_last_sheetx
+        return std::make_tuple(-5, -5);
+    }
+    if (ref_recordx != bk->_supbook_locals_inx) {
+        if (blah) {
+            pprint(
+                "/// get_externsheet_local_range(refx=%d) -> external %s"
+                , refx, strutil::repr(info));
+        }
+        return std::make_tuple(-4, -4); // external reference
+    }
+    if (ref_first_sheetx == 0xFFFE && 0xFFFE == ref_last_sheetx) {
+        if (blah) {
+            pprint(
+                "/// get_externsheet_local_range(refx=%d) -> unspecified sheet %s"
+                , refx, strutil::repr(info));
+        }
+        return std::make_tuple(-1, -1); // internal reference, any sheet
+    }
+    if (ref_first_sheetx == 0xFFFF && 0xFFFF == ref_last_sheetx) {
+        if (blah) {
+            pprint(
+                "/// get_externsheet_local_range(refx=%d) -> deleted sheet(s)",
+                refx);
+        }
+        return std::make_tuple(-2, -2); // internal reference, deleted sheet(s)
+    }
+    int nsheets = bk->_all_sheets_map.size();
+    if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx < nsheets)) {
+        if (blah) {
+            pprint("/// get_externsheet_local_range(refx=%d) -> %s", refx, strutil::repr(info));
+            pprint("--- first/last sheet not in range(%d)", nsheets);
+        }
+        return std::make_tuple(-102, -102); // stuffed up somewhere :-(
+    }
+    int xlrd_sheetx1 = bk->_all_sheets_map[ref_first_sheetx];
+    int xlrd_sheetx2 = bk->_all_sheets_map[ref_last_sheetx];
+    if (!(0 <= xlrd_sheetx1 && xlrd_sheetx1 <= xlrd_sheetx2)) {
+        return std::make_tuple(-3, -3); // internal reference, but to a macro sheet
+    }
+    return std::make_tuple(xlrd_sheetx1, xlrd_sheetx2);
+}
+
+inline
+std::tuple<int, int>
+get_externsheet_local_range_b57(
+    FormulaBookDelegate* bk, int raw_extshtx,
+    int ref_first_sheetx, int ref_last_sheetx, int blah=0)
+{
+    if (raw_extshtx > 0) {
+        if (blah) {
+            pprint("/// get_externsheet_local_range_b57(raw_extshtx=%d) -> external", raw_extshtx);
+        }
+        return std::make_tuple(-4, -4); // external reference
+    }
+    if (ref_first_sheetx == -1 && ref_last_sheetx == -1) {
+        return std::make_tuple(-2, -2); // internal reference, deleted sheet(s)
+    }
+    int nsheets = bk->_all_sheets_map.size();
+    if (!(0 <= ref_first_sheetx && ref_first_sheetx <= ref_last_sheetx && ref_last_sheetx  < nsheets)) {
+        if (blah) {
+            pprint(
+                "/// get_externsheet_local_range_b57(%d, %d, %d) -> ???"
+                , raw_extshtx, ref_first_sheetx, ref_last_sheetx
+            );
+            pprint("--- first/last sheet not in range(%d)", nsheets);
+        }
+        return std::make_tuple(-103, -103); // stuffed up somewhere :-(
+    }
+    int xlrd_sheetx1 = bk->_all_sheets_map[ref_first_sheetx];
+    int xlrd_sheetx2 = bk->_all_sheets_map[ref_last_sheetx];
+    if (!(0 <= xlrd_sheetx1 && xlrd_sheetx1 <= xlrd_sheetx2)) {
+        return std::make_tuple(-3, -3); // internal reference, but to a macro sheet
+    }
+    return std::make_tuple(xlrd_sheetx1, xlrd_sheetx2);
+}
+
+class FormulaError: public std::runtime_error
+{
+public:
+    FormulaError(const char* msg) : std::runtime_error(msg) {};
+    FormulaError(std::string msg) : std::runtime_error(msg.c_str()) {};
+};
+
+
 ////
 // <p>Represents an absolute or relative 3-dimensional reference to a box
 // of one or more cells.<br />
@@ -825,31 +855,19 @@ public:
     std::array<int, 6> coords;
     std::array<int, 6> relflags;
 
-    inline
-    Ref3D(int c1, int c2, int c3, int c4, int c5, int c6, int r1=0, int r2=0, int r3=0, int r4=0, int r5=0, int r6=0)
-    {
-        this->coords = {{c1, c2, c3, c4, c5, c6}};
-        this->relflags = {{r1, r2, r3, r4, r5, r6}};
-        this->shtxlo = c1;
-        this->shtxhi = c2;
-        this->rowxlo = c3;
-        this->rowxhi = c4;
-        this->colxlo = c5;
-        this->colxhi = c6;
-    };
-
-    inline
-    Ref3D(const std::array<int, 6>& coords_)
-    {
-        this->coords = coords_;
-        this->relflags = {{0, 0, 0, 0, 0, 0}};
-        this->shtxlo = coords_[0];
-        this->shtxhi = coords_[1];
-        this->rowxlo = coords_[2];
-        this->rowxhi = coords_[3];
-        this->colxlo = coords_[4];
-        this->colxhi = coords_[5];
-    };
+    // inline
+    // Ref3D(int c1, int c2, int c3, int c4, int c5, int c6,
+    //       int r1=0, int r2=0, int r3=0, int r4=0, int r5=0, int r6=0)
+    // {
+    //     this->coords = {{c1, c2, c3, c4, c5, c6}};
+    //     this->relflags = {{r1, r2, r3, r4, r5, r6}};
+    //     this->shtxlo = c1;
+    //     this->shtxhi = c2;
+    //     this->rowxlo = c3;
+    //     this->rowxhi = c4;
+    //     this->colxlo = c5;
+    //     this->colxhi = c6;
+    // };
 
     inline
     Ref3D(const std::array<int, 6>& coords_, const std::array<int, 6>& relflags_)
@@ -864,6 +882,16 @@ public:
         this->colxhi = coords_[5];
     };
 
+    inline
+    Ref3D(const std::array<int, 6>& coords_)
+    : Ref3D(coords_, {{0, 0, 0, 0, 0, 0}})
+    {};
+
+    inline
+    Ref3D()
+    : Ref3D({{0, 0, 0, 0, 0, 0}}, {{0, 0, 0, 0, 0, 0}})
+    {};
+
     // def __repr__(self):
     //     if not self.relflags or self.relflags == (0, 0, 0, 0, 0, 0):
     //         return "Ref3D(coords=%s)" % (self.coords, )
@@ -872,6 +900,230 @@ public:
     //             % (self.coords, self.relflags)
 };
 
+const MAP<int, std::string>
+shname_dict_ = {
+    {-1, "?internal; any sheet?"},
+    {-2, "internal; deleted sheet"},
+    {-3, "internal; macro sheet"},
+    {-4, "<<external>>"},
+};
+
+EXPORT std::string
+quotedsheetname(std::vector<std::string> shnames, int shx)
+{
+    std::string shname;
+    if (shx >= 0) {
+        shname = shnames[shx];
+    }
+    else {
+        shname = utils::getelse(shname_dict_, shx, strutil::format("?error %d?", shx));
+    }
+    if (shname.find("'") != std::string::npos) {
+        return strutil::format("'%s'", strutil::replace(shname, "'", "''"));
+    }
+    if (shname.find(" ") != std::string::npos) {
+        return strutil::format("'%s'", shname);
+    }
+    return shname;
+}
+
+EXPORT std::string
+sheetrange(FormulaBookDelegate* book, int slo, int shi)
+{
+    auto shnames = book->sheet_names();
+    auto shdesc = quotedsheetname(shnames, slo);
+    if (slo != shi-1) {
+        shdesc += ":" + quotedsheetname(shnames, shi-1);
+    }
+    return shdesc;
+}
+
+EXPORT std::string
+sheetrangerel(FormulaBookDelegate* book,
+              std::tuple<int, int> srange,
+              std::tuple<int, int> srangerel)
+{
+    int slo, shi, slorel, shirel;
+    std::tie(slo, shi) = srange;
+    std::tie(slorel, shirel) = srangerel;
+    if (!slorel && !shirel) {
+        return sheetrange(book, slo, shi);
+    }
+    // assert (slo == 0 == shi-1) and slorel and shirel
+    return "";
+}
+
+////
+// Utility function) { 7 => 'H', 27 => 'AB'
+inline
+std::string colname(int colx) {
+    // """ 7 => 'H', 27 => 'AB' """
+    static const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    if (colx < 0) {
+        throw std::logic_error("IndexError");
+    } else if (colx <= 25) {
+        return std::string(1, alphabet[colx]);
+    }
+    else {
+        div_t res = std::div(colx, 26);
+        int xdiv26 = res.quot;
+        int xmod26 = res.rem;
+        if (xdiv26 > 26) {
+            throw std::logic_error("IndexError");
+        }
+        return {alphabet[xdiv26 - 1], alphabet[xmod26], '\0'};
+    }
+}
+
+////
+// Utility function) { (5, 7) => '$H$6'
+EXPORT std::string
+cellnameabs(int rowx, int colx, int r1c1=0) {
+    // """ (5, 7) => '$H$6' or 'R8C6'"""
+    if (r1c1) {
+        return format("R%dC%d", rowx+1, colx+1);
+    }
+    return format("$%s$%d", colname(colx), rowx+1);
+}
+
+EXPORT std::string
+colnamerel(int colx, int colxrel, int bcolx=0, int r1c1=0) {
+    // if no base colx is provided, we have to return r1c1
+    if (bcolx == 0) {
+        r1c1 = 1;
+    }
+    if (not colxrel) {
+        if (r1c1) {
+            return format("C%d", colx + 1);
+        }
+        return "$" + colname(colx);
+    }
+    if (r1c1) {
+        if (colx) {
+            return format("C[%d]", colx);
+        }
+        return "C";
+    }
+    return colname((bcolx + colx) % 256);
+}
+
+// === Some helper functions for displaying cell references ===
+
+// I'm aware of only one possibility of a sheet-relative component in
+// a reference) { a 2D reference located in the "current sheet".
+// xlrd stores this internally with bounds of (0, 1, ...) and
+// relative flags of (1, 1, ...). These functions display the
+// sheet component as empty, just like Excel etc.
+inline
+std::string rownamerel(int rowx, int rowxrel, int browx=-1, int r1c1=0) {
+    // if no base rowx is provided, we have to return r1c1
+    if (browx == -1) {
+        r1c1 = 1;
+    }
+    if (!rowxrel) {
+        if (r1c1) {
+            return strutil::format("R%d", rowx+1);
+        }
+        return strutil::format("$%d", rowx+1);
+    }
+    if (r1c1) {
+        if (rowx) {
+            return strutil::format("R[%d]", rowx);
+        }
+        return "R";
+    }
+    return strutil::format("%d", (browx + rowx) % 65536 + 1);
+}
+
+EXPORT std::string
+cellnamerel(int rowx, int colx, int rowxrel, int colxrel,
+            int browx=0, int bcolx=0, int r1c1=0)
+{
+    if (not rowxrel and not colxrel) {
+        return cellnameabs(rowx, colx, r1c1);
+    }
+    if ((rowxrel and browx == 0) or (colxrel and bcolx == 0)) {
+        // must flip the whole cell into R1C1 mode
+        r1c1 = 1;
+    }
+    auto c = colnamerel(colx, colxrel, bcolx, r1c1);
+    auto r = rownamerel(rowx, rowxrel, browx, r1c1);
+    if (r1c1) {
+        return r + c;
+    }
+    return c + r;
+}
+
+EXPORT std::string
+rangename2drel(array<int, 4> rlo_rhi_clo_chi,
+               array<int, 4> rlorel_rhirel_clorel_chirel,
+               int browx=0, int bcolx=0, int r1c1=0)
+{
+    int rlo = rlo_rhi_clo_chi[0];
+    int rhi = rlo_rhi_clo_chi[1];
+    int clo = rlo_rhi_clo_chi[2];
+    int chi = rlo_rhi_clo_chi[3];
+    int rlorel = rlorel_rhirel_clorel_chirel[0];
+    int rhirel = rlorel_rhirel_clorel_chirel[1];
+    int clorel = rlorel_rhirel_clorel_chirel[2];
+    int chirel = rlorel_rhirel_clorel_chirel[3];
+    if ((rlorel or rhirel) and browx == 0) {
+        r1c1 = 1;
+    }
+    if ((clorel or chirel) and bcolx == 0) {
+        r1c1 = 1;
+    }
+    return format("%s:%s",
+                  cellnamerel(rlo,   clo,   rlorel, clorel, browx, bcolx, r1c1),
+                  cellnamerel(rhi-1, chi-1, rhirel, chirel, browx, bcolx, r1c1));
+}
+
+////
+// Utility function:
+// <br /> Ref3D(coords=(0, 1, -32, -22, -13, 13), relflags=(0, 0, 1, 1, 1, 1))
+// R1C1 mode => 'Sheet1!R[-32]C[-13]:R[-23]C[12]'
+// A1 mode => depends on base cell (browx, bcolx)
+inline std::string
+rangename3drel(FormulaBookDelegate* book, Ref3D ref3d,
+               int browx=0, int bcolx=0, int r1c1=0) {
+    auto coords = ref3d.coords;
+    auto relflags = ref3d.relflags;
+    std::string shdesc = sheetrangerel(book, std::make_tuple(coords[0], coords[1]),
+                                       std::make_tuple(relflags[0], relflags[1]));
+    std::string rngdesc = rangename2drel(
+                            {{coords[2], coords[3], coords[4], coords[5]}},
+                            {{relflags[2], relflags[3], relflags[4], relflags[5]}},
+                            browx, bcolx, r1c1);
+    if (!shdesc.empty()) {
+        return rngdesc;
+    }
+    return format("%s!%s", shdesc, rngdesc);
+}
+
+EXPORT std::string
+rangename2d(int rlo, int rhi, int clo, int chi, int r1c1=0) {
+    // """ (5, 20, 7, 10) => '$H$6:$J$20' """
+    if (r1c1)
+        return "";
+    if (rhi == rlo+1 and chi == clo+1)
+        return cellnameabs(rlo, clo, r1c1);
+    return format("%s:%s",
+                  cellnameabs(rlo, clo, r1c1),
+                  cellnameabs(rhi-1, chi-1, r1c1));
+}
+
+////
+// Utility function:
+// <br /> Ref3D((1, 4, 5, 20, 7, 10)) => 'Sheet2:Sheet3!$H$6:$J$20'
+EXPORT std::string
+rangename3d(FormulaBookDelegate* book, Ref3D ref3d) {
+    //""" Ref3D(1, 4, 5, 20, 7, 10) => 'Sheet2:Sheet3!$H$6:$J$20'
+    //    (assuming Excel's default sheetnames) """
+    auto coords = ref3d.coords;
+    return format("%s!%s",
+        sheetrange(book, coords[0], coords[1]),
+        rangename2d(coords[2], coords[3], coords[4], coords[5]));
+}
 
 const int tAdd = 0x03;
 const int tSub = 0x04;
@@ -1125,9 +1377,9 @@ do_unaryop(int opcode, int result_kind,
 
     auto tup = unop_rules.at(opcode);
     decltype(nop)* func = std::get<0>(tup);
-    int rank = std::get<1>(tup);;
-    char sym1 = std::get<2>(tup);;
-    char sym2 = std::get<3>(tup);;
+    int rank = std::get<1>(tup);
+    char sym1 = std::get<2>(tup);
+    char sym2 = std::get<3>(tup);
 
     std::string otext;
     if (sym1) otext.push_back(sym1);
@@ -1148,16 +1400,9 @@ not_in_name_formula(int op_arg, std::string oname_arg) {
                op_arg, oname_arg));
 }
 
-class FormulaNameDelegate {
-public:
-    std::string name;
-    std::vector<uint8_t> raw_formula;  // fixme:
-    int basic_formula_len;
-};
-
 inline
 void evaluate_name_formula(FormulaBookDelegate* bk,
-                           FormulaNameDelegate nobj,
+                           FormulaNameDelegate* nobj,
                            int namex,
                            int blah=0,
                            int level=0)
@@ -1165,12 +1410,13 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
     if (level > STACK_ALARM_LEVEL) {
         blah = 1;
     }
-    std::vector<uint8_t> data = nobj.raw_formula;
-    int fmlalen = nobj.basic_formula_len;
+    std::vector<uint8_t> data = nobj->raw_formula;
+    int fmlalen = nobj->basic_formula_len;
     int bv = bk->biff_version;
     int reldelta = 1; // All defined name formulas use "Method B" [OOo docs]
     if (blah) {
-        pprint("::: evaluate_name_formula %s %s %d %d %s level=%d", namex, nobj.name, fmlalen, bv, data, level);
+        pprint("::: evaluate_name_formula %s %s %d %d %s level=%d",
+               namex, nobj->name, fmlalen, bv, data, level);
         biffh::hex_char_dump(data, 0, fmlalen);
     }
     if (level > STACK_PANIC_LEVEL) {
@@ -1376,7 +1622,7 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
                 }
                 stack.push_back(res);
                 if (blah) { pprint("tRange post", stack); }
-            } else if (0x12 <= opcode <= 0x14) { // tUplus, tUminus, tPercent
+            } else if (0x12 <= opcode && opcode <= 0x14) { // tUplus, tUminus, tPercent
                 do_unaryop(opcode, oNUM, stack);
             } else if (opcode == 0x15) { // tParen
                 // source cosmetics
@@ -1426,10 +1672,10 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
                     pprint("   subop=%02xh subname=t%s sz=%d nc=%02xh",
                            subop, subname, sz, nc);
                 }
-            } else if (0x1A <= opcode <= 0x1B) { // tSheet, tEndSheet
+            } else if (0x1A <= opcode && opcode <= 0x1B) { // tSheet, tEndSheet
                 ASSERT(bv < 50);
                 throw FormulaError("tSheet & tEndsheet tokens not implemented");
-            } else if (0x1C <= opcode <= 0x1F) { // tErr, tBool, tInt, tNum
+            } else if (0x1C <= opcode && opcode <= 0x1F) { // tErr, tBool, tInt, tNum
                 int inx = opcode - 0x1C;
                 if (inx == 2) { // tInt
                     int kind = oNUM;
@@ -1461,6 +1707,7 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
             pos += sz;
             continue;
         }
+        int any_rel = 0;
         if (opcode == 0x00) { // tArray
             stack.push_back(unk_opnd);
         } else if (opcode == 0x01) { // tFunc
@@ -1535,31 +1782,40 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
                 }
                 ASSERT(minargs <= nargs && nargs <= maxargs);
                 ASSERT(stack.size() >= nargs);
-                ASSERT(stack.size() >= nargs);
-                argtext = listsep.join([arg.text for arg in stack[-nargs:]])
-                otext = "%s(%s)" % (func_name, argtext)
-                res = Operand(oUNK, nullptr, FUNC_RANK, otext)
+                // argtext = listsep.join([arg.text for arg in stack[-nargs:]])
+                std::string argtext;
+                for (int i=0; i < nargs; ++i) {
+                    argtext.append(stack[i+stack.size()-nargs-1].text);
+                    if (i != nargs)
+                        argtext.push_back(listsep);
+                }
+                std::string otext = format("%s(%s)", func_name, argtext);
+                auto res = Operand(oUNK, nullptr, FUNC_RANK, otext);
                 if (funcx == 1) { // IF
-                    testarg = stack[-nargs];
-                    if testarg.kind not in (oNUM, oBOOL):
+                    const auto& testarg = stack[stack.size()-nargs];
+                    int ivalue = testarg.value.to_int();
+                    if (testarg.kind != oNUM and testarg.kind != oBOOL) {
                         if (blah and testarg.kind != oUNK) {
-                            pprint("IF testarg kind?")
+                            pprint("IF testarg kind?");
                         }
-                    } else if (testarg.value not in (0, 1):
-                        if (blah and testarg.value is not nullptr) {
-                            pprint("IF testarg value?")
+                    } else if (ivalue != 0 and ivalue != 1) {
+                        if (blah and !testarg.value.is_null()) {
+                            pprint("IF testarg value?");
                         }
                     } else {
-                        if (nargs == 2 and not testarg.value) {
+                        if (nargs == 2 and !testarg.value.is_null()) {
                             // IF(FALSE, tv) => FALSE
-                            res.kind, res.value = oBOOL, 0;
+                            res.kind = oBOOL;
+                            res.value = 0;
                         } else {
-                            respos = -nargs + 2 - int(testarg.value)
-                            chosen = stack[respos]
-                            if chosen.kind == oMSNG:
-                                res.kind, res.value = oNUM, 0
+                            int respos = -nargs + 2 - ivalue;
+                            const auto& chosen = stack[respos];
+                            if (chosen.kind == oMSNG) {
+                                res.kind = oNUM;
+                                res.value = 0;
                             } else {
-                                res.kind, res.value = chosen.kind, chosen.value;
+                                res.kind = chosen.kind;
+                                res.value = chosen.value;
                             }
                         }
                         if (blah) {
@@ -1567,92 +1823,113 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
                         }
                     }
                 } else if (funcx == 100) { // CHOOSE
-                    testarg = stack[-nargs]
+                    const auto& testarg = stack[stack.size()-nargs];
                     if (testarg.kind == oNUM) {
-                        if (1 <= testarg.value < nargs) {
-                            chosen = stack[-nargs + int(testarg.value)]
-                            if chosen.kind == oMSNG:
-                                res.kind, res.value = oNUM, 0
+                        int ivalue = testarg.value.to_int();
+                        if (1 <= ivalue && ivalue < nargs) {
+                            const auto& chosen = stack[-nargs + ivalue];
+                            if (chosen.kind == oMSNG) {
+                                res.kind = oNUM;
+                                res.value = 0;
                             } else {
-                                res.kind, res.value = chosen.kind, chosen.value;
+                                res.kind = chosen.kind;
+                                res.value = chosen.value;
                             }
                         }
                     }
                 }
-                del stack[-nargs:];
-                stack.push_back(res);
+                for (int i=0; i < nargs; ++i) {
+                    stack.pop_back();
+                }
+                stack.push_back(std::move(res));
             }
         } else if (opcode == 0x03) { //tName
-            tgtnamex = unpack("<H", data[pos+1:pos+3])[0] - 1
+            // tgtnamex = unpack("<H", data[pos+1:pos+3])[0] - 1
+            int tgtnamex = utils::as_uint16(data, pos+1) - 1;
             // Only change with BIFF version is number of trailing UNUSED bytes!
-            if (blah) { pprint("   tgtnamex=%d" % tgtnamex); }
-            tgtobj = bk.name_obj_list[tgtnamex];
-            if (not tgtobj.evaluated) {
+            if (blah) { pprint("   tgtnamex=%d", tgtnamex); }
+            FormulaNameDelegate* tgtobj = bk->get_name_obj(tgtnamex);
+            if (not tgtobj->evaluated) {
                 ////// recursive //////
                 evaluate_name_formula(bk, tgtobj, tgtnamex, blah, level+1);
             }
-            if tgtobj.macro or tgtobj.binary \
-            or tgtobj.any_err:
+            Operand res;
+            if (tgtobj->macro or tgtobj->binary or tgtobj->any_err) {
                 if (blah) {
-                    tgtobj.dump(
-                        bk.logfile,
-                        header="!!! tgtobj has problems!!!",
-                        footer="-----------       --------",
-                        );
+                    // tgtobj.dump(
+                    //     bk->logfile,
+                    //     header="!!! tgtobj has problems!!!",
+                    //     footer="-----------       --------",
+                    //     );
                 }
                 res = Operand(oUNK, nullptr);
-                any_err = any_err or tgtobj.macro or tgtobj.binary or tgtobj.any_err
-                any_rel = any_rel or tgtobj.any_rel
+                any_err = any_err or tgtobj->macro or tgtobj->binary or tgtobj->any_err;
+                any_rel = any_rel or tgtobj->any_rel;
             } else {
-                assert len(tgtobj.stack) == 1
-                res = copy.deepcopy(tgtobj.stack[0]);
+                ASSERT(tgtobj->stack.size() == 1);
+                res = tgtobj->stack[0];
             }
             res.rank = LEAF_RANK;
-            if (tgtobj.scope == -1) {
-                res.text = tgtobj.name;
+            if (tgtobj->scope == -1) {
+                res.text = tgtobj->name;
             } else {
-                res.text = "%s!%s" \
-                           % (bk._sheet_names[tgtobj.scope], tgtobj.name);
+                res.text = format("%s!%s",
+                                  bk->_sheet_names[tgtobj->scope],
+                                  tgtobj->name);
             }
             if (blah) {
-                pprint("    tName:setting text to", repr(res.text));
+                pprint("    tName:setting text to %s", res.text);
             }
             stack.push_back(res);
         } else if (opcode == 0x04) { // tRef
             // not_in_name_formula(op, oname)
-            auto res = get_cell_addr(data, pos+1, bv, reldelta);
-            if (blah) { pprint("  ", res); }
-            rowx, colx, row_rel, col_rel = res
-            shx1 = shx2 = 0 ////////////// N.B. relative to the CURRENT SHEET
-            any_rel = 1
-            coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1)
+            auto addr = get_cell_addr(data, pos+1, bv, reldelta);
+            if (blah) { pprint("  %s", addr); }
+            int rowx    = std::get<0>(addr);
+            int colx    = std::get<1>(addr);
+            int row_rel = std::get<2>(addr);
+            int col_rel = std::get<3>(addr);
+            int shx1 = 0;
+            int shx2 = 0; ////////////// N.B. relative to the CURRENT SHEET
+            any_rel = 1;
+            std::array<int, 6> coords = {{shx1, shx2+1, rowx,
+                                          rowx+1, colx, colx+1}};
             if (blah) { pprint("   ", coords); }
-            res = Operand(oUNK, nullptr);
+            auto res = Operand(oUNK, nullptr);
             if (optype == 1) {
-                relflags = (1, 1, row_rel, row_rel, col_rel, col_rel);
-                res = Operand(oREL, [Ref3D(coords + relflags)]);
+                std::array<int, 6> relflags = {{1, 1, row_rel,
+                                                row_rel, col_rel, col_rel}};
+                res = Operand(oREL, std::vector<Ref3D>{{Ref3D(coords, relflags)}});
             }
             stack.push_back(res);
         } else if (opcode == 0x05) { // tArea
             // not_in_name_formula(op, oname)
-            res1, res2 = get_cell_range_addr(data, pos+1, bv, reldelta)
+            std::array<int, 4> res1, res2;
+            tie(res1, res2) = get_cell_range_addr(data, pos+1, bv, reldelta);
             if (blah) { pprint("  ", res1, res2); }
-            rowx1, colx1, row_rel1, col_rel1 = res1;
-            rowx2, colx2, row_rel2, col_rel2 = res2;
-            shx1 = shx2 = 0 ////////////// N.B. relative to the CURRENT SHEET
+            int rowx1    = res1[0];
+            int colx1    = res1[1];
+            int row_rel1 = res1[2];
+            int col_rel1 = res1[3];
+            int rowx2    = res2[0];
+            int colx2    = res2[1];
+            int row_rel2 = res2[2];
+            int col_rel2 = res2[3];
+            int shx1 = 0;
+            int shx2 = 0; ////////////// N.B. relative to the CURRENT SHEET
             any_rel = 1;
-            coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1);
+            auto coords = std::array<int, 6>{{shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1}};
             if (blah) { pprint("   ", coords); }
             auto res = Operand(oUNK, nullptr);
             if (optype == 1) {
-                relflags = (1, 1, row_rel1, row_rel2, col_rel1, col_rel2);
-                res = Operand(oREL, [Ref3D(coords + relflags)]);
+                auto relflags = std::array<int, 6>{{1, 1, row_rel1, row_rel2, col_rel1, col_rel2}};
+                res = Operand(oREL, vector<Ref3D>{Ref3D(coords, relflags)});
             }
-            stack.push_back(move(res));
+            stack.push_back(std::move(res));
         } else if (opcode == 0x06) { // tMemArea
             not_in_name_formula(op, oname);
         } else if (opcode == 0x09) { // tMemFunc
-            nb = unpack("<H", data[pos+1:pos+3])[0];
+            int nb = utils::as_uint16(data, pos+1);
             if (blah) { pprint("  %d bytes of cell ref formula", nb); }
             // no effect on stack
         } else if (opcode == 0x0C) { //tRefN
@@ -1669,34 +1946,48 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
             // any_rel = 1
             // if (blah) { print >> bk.logfile, "   ", res
         } else if (opcode == 0x1A) { // tRef3d
+            std::array<int, 4> addr;
+            int refx = 0;
+            int shx1, shx2;
             if (bv >= 80) {
-                res = get_cell_addr(data, pos+3, bv, reldelta);
-                refx = unpack("<H", data[pos+1:pos+3])[0];
-                shx1, shx2 = get_externsheet_local_range(bk, refx, blah);
+                addr = get_cell_addr(data, pos+3, bv, reldelta);
+                refx = utils::as_uint16(data, pos+1);
+                std::tie(shx1, shx2) = get_externsheet_local_range(bk, refx, blah);
             } else {
-                res = get_cell_addr(data, pos+15, bv, reldelta);
-                raw_extshtx, raw_shx1, raw_shx2 = \
-                             unpack("<hxxxxxxxxhh", data[pos+1:pos+15]);
+                addr = get_cell_addr(data, pos+15, bv, reldelta);
+                // raw_extshtx, raw_shx1, raw_shx2 = \
+                //              unpack("<hxxxxxxxxhh", data[pos+1:pos+15]);
+                int raw_extshtx = utils::as_int16(data, pos+1);
+                int raw_shx1    = utils::as_int16(data, pos+11);
+                int raw_shx2    = utils::as_int16(data, pos+13);
                 if (blah) {
                     pprint("tRef3d", raw_extshtx, raw_shx1, raw_shx2);
                 }
-                shx1, shx2 = get_externsheet_local_range_b57(
-                                bk, raw_extshtx, raw_shx1, raw_shx2, blah);
+                std::tie(
+                    shx1, shx2
+                ) = get_externsheet_local_range_b57(bk, raw_extshtx, raw_shx1,
+                                                    raw_shx2, blah);
             }
-            rowx, colx, row_rel, col_rel = res;
-            is_rel = row_rel || col_rel;
+            int rowx = addr[0];
+            int colx = addr[1];
+            int row_rel = addr[2];
+            int col_rel = addr[3];
+            int is_rel = row_rel || col_rel;
             any_rel = any_rel || is_rel;
-            coords = (shx1, shx2+1, rowx, rowx+1, colx, colx+1);
+            auto coords = std::array<int, 6>{{shx1, shx2+1, rowx,
+                                              rowx+1, colx, colx+1}};
             any_err |= shx1 < -1;
             if (blah) {
                 pprint("   %s", coords);
             }
             auto res = Operand(oUNK, nullptr);
-            if (is_rel {
-                relflags = (0, 0, row_rel, row_rel, col_rel, col_rel);
-                ref3d = Ref3D(coords + relflags);
+            Ref3D ref3d;
+            if (is_rel) {
+                auto relflags = array<int, 6>{{0, 0, row_rel,
+                                               row_rel, col_rel, col_rel}};
+                ref3d = Ref3D(coords, relflags);
                 res.kind = oREL;
-                res.text = rangename3drel(bk, ref3d, r1c1=1);
+                res.text = rangename3drel(bk, ref3d, 0, 0, 1);
             } else {
                 ref3d = Ref3D(coords);
                 res.kind = oREF;
@@ -1704,39 +1995,51 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
             }
             res.rank = LEAF_RANK;
             if (optype == 1) {
-                res.value = [ref3d];
+                res.value = vector<Ref3D>{{ref3d}};
             }
             stack.push_back(res);;
         } else if (opcode == 0x1B) { // tArea3d
+            array<int, 4> res1, res2;
+            int shx1, shx2;
             if (bv >= 80) {
-                res1, res2 = get_cell_range_addr(data, pos+3, bv, reldelta);
-                refx = unpack("<H", data[pos+1:pos+3])[0];
-                shx1, shx2 = get_externsheet_local_range(bk, refx, blah);
+                std::tie(res1, res2) = get_cell_range_addr(data, pos+3, bv, reldelta);
+                int refx = utils::as_uint16(data, pos+1);
+                std::tie(shx1, shx2) = get_externsheet_local_range(bk, refx, blah);
             } else {
-                res1, res2 = get_cell_range_addr(data, pos+15, bv, reldelta);
-                raw_extshtx, raw_shx1, raw_shx2 = \
-                             unpack("<hxxxxxxxxhh", data[pos+1:pos+15])
+                std::tie(res1, res2) = get_cell_range_addr(data, pos+15, bv, reldelta);
+                // raw_extshtx, raw_shx1, raw_shx2 = \
+                //              unpack("<hxxxxxxxxhh", data[pos+1:pos+15])
+                int raw_extshtx = utils::as_int16(data, pos+1);
+                int raw_shx1    = utils::as_int16(data, pos+11);
+                int raw_shx2    = utils::as_int16(data, pos+13);
                 if (blah) {
                     pprint("tArea3d", raw_extshtx, raw_shx1, raw_shx2);
                 }
-                shx1, shx2 = get_externsheet_local_range_b57(
-                                bk, raw_extshtx, raw_shx1, raw_shx2, blah);
+                std::tie(shx1, shx2) = get_externsheet_local_range_b57(
+                                            bk, raw_extshtx, raw_shx1, raw_shx2, blah);
             }
             any_err |= shx1 < -1;
-            rowx1, colx1, row_rel1, col_rel1 = res1;
-            rowx2, colx2, row_rel2, col_rel2 = res2;
-            is_rel = row_rel1 or col_rel1 or row_rel2 or col_rel2
-            any_rel = any_rel or is_rel
-            coords = (shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1)
+            int rowx1    = res1[0];
+            int colx1    = res1[1];
+            int row_rel1 = res1[2];
+            int col_rel1 = res1[3];
+            int rowx2    = res2[0];
+            int colx2    = res2[1];
+            int row_rel2 = res2[2];
+            int col_rel2 = res2[3];
+            int is_rel = row_rel1 or col_rel1 or row_rel2 or col_rel2;
+            any_rel = any_rel or is_rel;
+            array<int, 6> coords = {{shx1, shx2+1, rowx1, rowx2+1, colx1, colx2+1}};
             if (blah) {
                 pprint("   %s", coords);
             }
-            res = Operand(oUNK, nullptr);
+            auto res = Operand(oUNK, nullptr);
+            Ref3D ref3d;
             if (is_rel) {
-                relflags = (0, 0, row_rel1, row_rel2, col_rel1, col_rel2)
-                ref3d = Ref3D(coords + relflags)
+                array<int, 6> relflags = {{0, 0, row_rel1, row_rel2, col_rel1, col_rel2}};
+                ref3d = Ref3D(coords, relflags);
                 res.kind = oREL;
-                res.text = rangename3drel(bk, ref3d, r1c1=1)
+                res.text = rangename3drel(bk, ref3d, 0, 0, 1);
             } else {
                 ref3d = Ref3D(coords);
                 res.kind = oREF;
@@ -1744,18 +2047,22 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
             }
             res.rank = LEAF_RANK;
             if (optype == 1) {
-                res.value = [ref3d];
+                res.value = vector<Ref3D>{ref3d};
             }
             stack.push_back(res);
         } else if (opcode == 0x19) { // tNameX
-            dodgy = 0;
-            res = Operand(oUNK, nullptr);
+            int dodgy = 0;
+            auto res = Operand(oUNK, nullptr);
+            int refx, tgtnamex, origrefx;
             if (bv >= 80) {
-                refx, tgtnamex = unpack("<HH", data[pos+1:pos+5])
+                refx = utils::as_uint16(data, pos+1);
+                tgtnamex = utils::as_uint16(data, pos+3);
                 tgtnamex -= 1;
                 origrefx = refx;
             } else {
-                refx, tgtnamex = unpack("<hxxxxxxxxH", data[pos+1:pos+13]);
+                //refx, tgtnamex = unpack("<hxxxxxxxxH", data[pos+1:pos+13]);
+                refx = utils::as_int16(data, pos+1);
+                tgtnamex = utils::as_uint16(data, pos+11);
                 tgtnamex -= 1;
                 origrefx = refx;
                 if (refx > 0) {
@@ -1767,8 +2074,8 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
                 }
             }
             if (blah) {
-                pprint("   origrefx=%d refx=%d tgtnamex=%d dodgy=%d" \
-                    % (origrefx, refx, tgtnamex, dodgy))
+                pprint("   origrefx=%d refx=%d tgtnamex=%d dodgy=%d",
+                       origrefx, refx, tgtnamex, dodgy);
             }
             if (tgtnamex == namex) {
                 if (blah) {  
@@ -1776,64 +2083,66 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
                 }
                 dodgy = any_err = 1;
             }
+            int shx1, shx2;
             if (not dodgy) {
                 if (bv >= 80) {
-                    shx1, shx2 = get_externsheet_local_range(bk, refx, blah);
+                    std::tie(shx1, shx2) = get_externsheet_local_range(bk, refx, blah);
                 } else if (origrefx > 0) {
-                    shx1, shx2 = (-4, -4) // external ref
+                    shx1 = shx2 = -4; // external ref
                 } else {
-                    exty = bk._externsheet_type_b57[refx]
+                    int exty = bk->_externsheet_type_b57[refx];
                     if (exty == 4) { // non-specific sheet in own doc't
-                        shx1, shx2 = (-1, -1) // internal, any sheet
+                        shx1 = shx2 = -1; // internal, any sheet
                     } else {
-                        shx1, shx2 = (-666, -666);
+                        shx1 = shx2 = -666;
                     }
                 }
             }
             if (dodgy || shx1 < -1) {
-                otext = "<<Name //%d in external(?) file //%d>>" \
-                        % (tgtnamex, origrefx)
+                std::string otext = format(
+                                        "<<Name //%d in external(?) file //%d>>",
+                                        tgtnamex, origrefx);
                 res = Operand(oUNK, nullptr, LEAF_RANK, otext);
             } else {
-                tgtobj = bk.name_obj_list[tgtnamex];
-                if (!tgtobj.evaluated) {
+                auto tgtobj = bk->get_name_obj(tgtnamex);
+                if (!tgtobj->evaluated) {
                     ////// recursive //////
                     evaluate_name_formula(bk, tgtobj, tgtnamex, blah, level+1);
                 }
-                if (tgtobj.macro || tgtobj.binary ||
-                    tgtobj.any_err) {
+                if (tgtobj->macro || tgtobj->binary || tgtobj->any_err) {
                     if (blah) {
-                        tgtobj.dump(
-                            bk.logfile,
-                            header="!!! bad tgtobj !!!",
-                            footer="------------------",
-                            );
+                        // tgtobj.dump(
+                        //     bk.logfile,
+                        //     header="!!! bad tgtobj !!!",
+                        //     footer="------------------",
+                        //     );
                     }
-                    res = Operand(oUNK, nullptr)
-                    any_err = any_err or tgtobj.macro or tgtobj.binary or tgtobj.any_err
-                    any_rel = any_rel or tgtobj.any_rel
+                    res = Operand(oUNK, nullptr);
+                    any_err = any_err or tgtobj->macro or tgtobj->binary or tgtobj->any_err;
+                    any_rel = any_rel or tgtobj->any_rel;
                 } else {
-                    assert len(tgtobj.stack) == 1
-                    res = copy.deepcopy(tgtobj.stack[0])
+                    ASSERT(tgtobj->stack.size() == 1);
+                    res = tgtobj->stack[0];
                 }
                 res.rank = LEAF_RANK;
-                if (tgtobj.scope == -1) {
-                    res.text = tgtobj.name;
+                if (tgtobj->scope == -1) {
+                    res.text = tgtobj->name;
                 } else {
-                    res.text = "%s!%s" \
-                               % (bk._sheet_names[tgtobj.scope], tgtobj.name)
+                    res.text = format("%s!%s",
+                                      bk->_sheet_names[tgtobj->scope],
+                                      tgtobj->name);
                 }
                 if (blah) {
-                    pprint("    tNameX: setting text to", repr(res.text));
+                    pprint("    tNameX: setting text to %s", res.text);
                 }
             }
             stack.push_back(res);
-        } else if (opcode in error_opcodes) {
+        } else if (error_opcodes.find(opcode)!=error_opcodes.end()) {
             any_err = 1;
-            stacks.push_back(error_opnd);
+            stack.push_back(error_opnd);
         } else {
             if (blah) {
-                pprint("FORMULA: /// Not handled yet: t" + oname);
+                pprint("FORMULA: /// Not handled yet: t%s", oname);
             }
             any_err = 1;
         }
@@ -1850,16 +2159,16 @@ void evaluate_name_formula(FormulaBookDelegate* bk,
             pprint("*** Stack has unprocessed args");
         }
     }
-    nobj.stack = stack;
-    if (stack.size() != 1 {
-        nobj.result = null_operand;
+    nobj->stack = stack;
+    if (stack.size() != 1) {
+        nobj->result = Operand();  // null operand
     } else {
-        nobj.result = move(stack[0]);
+        nobj->result = std::move(stack[0]);
     }
-    nobj.any_rel = any_rel;
-    nobj.any_err = any_err;
-    nobj.any_external = any_external;
-    nobj.evaluated = 1;
+    nobj->any_rel = any_rel;
+    nobj->any_err = any_err;
+    nobj->any_external = any_external;
+    nobj->evaluated = 1;
 }
 
 /*
@@ -2552,48 +2861,7 @@ def dump_formula(bk, data, fmlalen, bv, reldelta, blah=0, isname=0):
 */
 
 
-// === Some helper functions for displaying cell references ===
-
-// I'm aware of only one possibility of a sheet-relative component in
-// a reference) { a 2D reference located in the "current sheet".
-// xlrd stores this internally with bounds of (0, 1, ...) and
-// relative flags of (1, 1, ...). These functions display the
-// sheet component as empty, just like Excel etc.
-inline
-std::string rownamerel(int rowx, int rowxrel, int browx=-1, int r1c1=0) {
-    // if no base rowx is provided, we have to return r1c1
-    if (browx == -1) {
-        r1c1 = 1;
-    }
-    if (!rowxrel) {
-        if (r1c1) {
-            return strutil::format("R%d", rowx+1);
-        }
-        return strutil::format("$%d", rowx+1);
-    }
-    if (r1c1) {
-        if (rowx) {
-            return strutil::format("R[%d]", rowx);
-        }
-        return "R";
-    }
-    return strutil::format("%d", (browx + rowx) % 65536 + 1);
-}
-
 /*
-def colnamerel(colx, colxrel, bcolx=nullptr, r1c1=0):
-    // if no base colx is provided, we have to return r1c1
-    if bcolx is nullptr:
-        r1c1 = True
-    if not colxrel:
-        if r1c1:
-            return "C%d" % (colx + 1)
-        return "$" + colname(colx)
-    if r1c1:
-        if colx:
-            return "C[%d]" % colx
-        return "C"
-    return colname((bcolx + colx) % 256)
 
 ////
 // Utility function) { (5, 7) => 'H6'
@@ -2601,13 +2869,6 @@ def cellname(rowx, colx):
     """ (5, 7) => 'H6' """
     return "%s%d" % (colname(colx), rowx+1)
 
-////
-// Utility function) { (5, 7) => '$H$6'
-def cellnameabs(rowx, colx, r1c1=0):
-    """ (5, 7) => '$H$6' or 'R8C6'"""
-    if r1c1:
-        return "R%dC%d" % (rowx+1, colx+1)
-    return "$%s$%d" % (colname(colx), rowx+1)
 
 def cellnamerel(rowx, colx, rowxrel, colxrel, browx=nullptr, bcolx=nullptr, r1c1=0):
     if not rowxrel and not colxrel:
@@ -2621,128 +2882,8 @@ def cellnamerel(rowx, colx, rowxrel, colxrel, browx=nullptr, bcolx=nullptr, r1c1
         return r + c
     return c + r
 */
-////
-// Utility function) { 7 => 'H', 27 => 'AB'
-inline
-std::string colname(int colx) {
-    // """ 7 => 'H', 27 => 'AB' """
-    static const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    if (colx < 0) {
-        throw std::logic_error("IndexError");
-    } else if (colx <= 25) {
-        return std::string(1, alphabet[colx]);
-    }
-    else {
-        div_t res = std::div(colx, 26);
-        int xdiv26 = res.quot;
-        int xmod26 = res.rem;
-        if (xdiv26 > 26) {
-            throw std::logic_error("IndexError");
-        }
-        return {alphabet[xdiv26 - 1], alphabet[xmod26], '\0'};
-    }
-}
-/*
-def rangename2d(rlo, rhi, clo, chi, r1c1=0):
-    """ (5, 20, 7, 10) => '$H$6:$J$20' """
-    if r1c1:
-        return
-    if rhi == rlo+1 and chi == clo+1:
-        return cellnameabs(rlo, clo, r1c1)
-    return "%s:%s" % (cellnameabs(rlo, clo, r1c1), cellnameabs(rhi-1, chi-1, r1c1))
 
-def rangename2drel(rlo_rhi_clo_chi, rlorel_rhirel_clorel_chirel, browx=nullptr, bcolx=nullptr, r1c1=0):
-    rlo, rhi, clo, chi = rlo_rhi_clo_chi
-    rlorel, rhirel, clorel, chirel = rlorel_rhirel_clorel_chirel
-    if (rlorel or rhirel) and browx is nullptr:
-        r1c1 = True
-    if (clorel or chirel) and bcolx is nullptr:
-        r1c1 = True
-    return "%s:%s" % (
-        cellnamerel(rlo,   clo,   rlorel, clorel, browx, bcolx, r1c1),
-        cellnamerel(rhi-1, chi-1, rhirel, chirel, browx, bcolx, r1c1)
-        )
-////
-// Utility function:
-// <br /> Ref3D((1, 4, 5, 20, 7, 10)) => 'Sheet2:Sheet3!$H$6:$J$20'
-def rangename3d(book, ref3d):
-    """ Ref3D(1, 4, 5, 20, 7, 10) => 'Sheet2:Sheet3!$H$6:$J$20'
-        (assuming Excel's default sheetnames) """
-    coords = ref3d.coords
-    return "%s!%s" % (
-        sheetrange(book, *coords[:2]),
-        rangename2d(*coords[2:6]))
-*/
-////
-// Utility function:
-// <br /> Ref3D(coords=(0, 1, -32, -22, -13, 13), relflags=(0, 0, 1, 1, 1, 1))
-// R1C1 mode => 'Sheet1!R[-32]C[-13]:R[-23]C[12]'
-// A1 mode => depends on base cell (browx, bcolx)
-inline std::string
-rangename3drel(FormulaDelegate* book, ref3d, browx=nullptr, bcolx=nullptr, r1c1=0) {
-    coords = ref3d.coords
-    relflags = ref3d.relflags
-    shdesc = sheetrangerel(book, coords[:2], relflags[:2])
-    rngdesc = rangename2drel(coords[2:6], relflags[2:6], browx, bcolx, r1c1)
-    if (!shdesc) {
-        return rngdesc;
-    }
-    return format("%s!%s", shdesc, rngdesc);
-}
 
-static MAP<int, std::string>
-shname_dict_ = {
-    {-1, "?internal; any sheet?"},
-    {-2, "internal; deleted sheet"},
-    {-3, "internal; macro sheet"},
-    {-4, "<<external>>"},
-};
-
-inline
-std::string
-quotedsheetname(std::vector<std::string> shnames, int shx)
-{
-    std::string shname;
-    if (shx >= 0) {
-        shname = shnames[shx];
-    }
-    else {
-        shname = utils::getelse(shname_dict_, shx, strutil::format("?error %d?", shx));
-    }
-    if (shname.find("'") != std::string::npos) {
-        return strutil::format("'%s'", strutil::replace(shname, "'", "''"));
-    }
-    if (shname.find(" ") != std::string::npos) {
-        return strutil::format("'%s'", shname);
-    }
-    return shname;
-}
-
-inline
-std::string sheetrange(FormulaDelegate& book, int slo, int shi)
-{
-    auto shnames = book.sheet_names();
-    auto shdesc = quotedsheetname(shnames, slo);
-    if (slo != shi-1) {
-        shdesc += ":" + quotedsheetname(shnames, shi-1);
-    }
-    return shdesc;
-}
-
-inline
-std::string sheetrangerel(FormulaDelegate& book,
-                          std::tuple<int, int> srange,
-                          std::tuple<int, int> srangerel)
-{
-    int slo, shi, slorel, shirel;
-    std::tie(slo, shi) = srange;
-    std::tie(slorel, shirel) = srangerel;
-    if (!slorel && !shirel) {
-        return sheetrange(book, slo, shi);
-    }
-    // assert (slo == 0 == shi-1) and slorel and shirel
-    return "";
-}
 
 // ==============================================================
 

@@ -27,11 +27,16 @@
 namespace xlrd {
 namespace biffh {
 
+using std::vector;
+using u8 = uint8_t;
+
 namespace strutil = utils::str;
 USING_FUNC(strutil, format);
+USING_FUNC(strutil, unicode);
 USING_FUNC(utils, slice);
 USING_FUNC(utils, equals);
 USING_FUNC(utils, pprint);
+USING_FUNC(utils, as_uint8);
 USING_FUNC(utils, as_uint16);
 
 
@@ -261,11 +266,18 @@ def upkbitsL(tgt_obj, src, manifest, local_setattr=setattr, local_int=int):
     for n, mask, attr in manifest:
         local_setattr(tgt_obj, attr, local_int((src & mask) >> n))
 
-def unpack_string(data, pos, encoding, lenlen=1):
-    nchars = unpack('<' + 'BH'[lenlen-1], data[pos:pos+lenlen])[0]
-    pos += lenlen
-    return unicode(data[pos:pos+nchars], encoding)
 */
+EXPORT std::string
+unpack_string(const vector<u8>& data, int pos, std::string encoding, int lenlen=1) {
+    int nchars = 0;
+    if (lenlen == 1) {
+        nchars = utils::as_uint8(data, pos);
+    } else {
+        nchars = utils::as_uint16(data, pos);
+    }
+    pos += lenlen;
+    return unicode(slice(data, pos, pos+nchars), encoding);
+}
 
 inline
 std::tuple<std::string, int>
@@ -290,46 +302,56 @@ unpack_string_update_pos(std::vector<uint8_t> data, int pos,
     return std::make_tuple(strutil::unicode(utils::slice(data, pos, newpos), encoding), newpos);
 }
 
-/*
-def unpack_unicode(data, pos, lenlen=2):
-    "Return unicode_strg"
-    nchars = unpack('<' + 'BH'[lenlen-1], data[pos:pos+lenlen])[0]
-    if not nchars:
+EXPORT std::string
+unpack_unicode(const vector<u8> data, int pos, int lenlen=2) {
+    // "Return unicode_strg"
+    int nchars;
+    if (lenlen==2) {
+        nchars = as_uint16(data, pos);
+    } else {
+        nchars = as_uint8(data, pos);
+    }
+    if (not nchars) {
         // Ambiguous whether 0-length string should have an "options" byte.
         // Avoid crash if missing.
-        return UNICODE_LITERAL("")
-    pos += lenlen
-    options = BYTES_ORD(data[pos])
-    pos += 1
+        return "";
+    }
+    pos += lenlen;
+    int options = data[pos];
+    pos += 1;
     // phonetic = options & 0x04
     // richtext = options & 0x08
-    if options & 0x08:
+    if (options & 0x08) {
         // rt = unpack('<H', data[pos:pos+2])[0] // unused
-        pos += 2
-    if options & 0x04:
+        pos += 2;
+    }
+    if (options & 0x04) {
         // sz = unpack('<i', data[pos:pos+4])[0] // unused
-        pos += 4
-    if options & 0x01:
+        pos += 4;
+    }
+    std::string strg;
+    if (options & 0x01) {
         // Uncompressed UTF-16-LE
-        rawstrg = data[pos:pos+2*nchars]
+        auto rawstrg = slice(data, pos, pos+2*nchars);
         // if DEBUG: print "nchars=%d pos=%d rawstrg=%r" % (nchars, pos, rawstrg)
-        strg = unicode(rawstrg, 'utf_16_le')
+        strg = unicode(rawstrg, "utf_16_le");
         // pos += 2*nchars
-    else:
+    } else {
         // Note: this is COMPRESSED (not ASCII!) encoding!!!
         // Merely returning the raw bytes would work OK 99.99% of the time
         // if the local codepage was cp1252 -- however this would rapidly go pear-shaped
         // for other codepages so we grit our Anglocentric teeth and return Unicode :-)
 
-        strg = unicode(data[pos:pos+nchars], "latin_1")
+        strg = unicode(slice(data, pos, pos+nchars), "latin_1");
         // pos += nchars
+    }
     // if richtext:
     //     pos += 4 * rt
     // if phonetic:
     //     pos += sz
     // return (strg, pos)
-    return strg
-*/
+    return strg;
+}
 
 inline
 std::tuple<std::string, int>
@@ -682,9 +704,8 @@ def biff_dump(mem, stream_offset, stream_len, base=0, fout=sys.stdout, unnumbere
 */
 
 inline void
-biff_count_records(
-    const std::vector<uint8_t>& mem,
-    int stream_offset, int stream_len)
+biff_count_records(const std::vector<uint8_t>& mem,
+                   int stream_offset, int stream_len)
 {
     int pos = stream_offset;
     int stream_end = stream_offset + stream_len;
